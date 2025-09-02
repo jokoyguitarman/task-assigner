@@ -130,13 +130,31 @@ export const authAPI = {
     if (error) throw error;
 
     // Get user profile
-    const { data: userData, error: userError } = await supabase
+    let { data: userData, error: userError } = await supabase
       .from('users')
       .select('*')
       .eq('id', data.user.id)
       .single();
 
-    if (userError) throw userError;
+    // If user profile doesn't exist, create it
+    if (userError && userError.code === 'PGRST116') {
+      // Create a default user profile
+      const { data: newUserData, error: createError } = await supabase
+        .from('users')
+        .insert({
+          id: data.user.id,
+          email: data.user.email || email,
+          name: data.user.user_metadata?.name || data.user.email?.split('@')[0] || 'User',
+          role: 'admin', // Default to admin for now, you might want to make this configurable
+        })
+        .select()
+        .single();
+
+      if (createError) throw createError;
+      userData = newUserData;
+    } else if (userError) {
+      throw userError;
+    }
 
     return transformUser(userData);
   },
