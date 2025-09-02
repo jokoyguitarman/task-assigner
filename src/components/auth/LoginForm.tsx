@@ -10,7 +10,19 @@ import {
   Alert,
   CircularProgress,
   Container,
+  Paper,
+  Fade,
+  Slide,
+  Avatar,
+  Divider,
+  Chip,
 } from '@mui/material';
+import {
+  Login as LoginIcon,
+  AdminPanelSettings as AdminIcon,
+  Person as PersonIcon,
+  CheckCircle as CheckIcon,
+} from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 
 const LoginForm: React.FC = () => {
@@ -39,78 +51,232 @@ const LoginForm: React.FC = () => {
   };
 
   return (
-    <Container maxWidth="sm">
-      <Box
-        sx={{
-          minHeight: '100vh',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Card sx={{ width: '100%', maxWidth: 400 }}>
-          <CardContent sx={{ p: 4 }}>
-            <Typography variant="h4" component="h1" gutterBottom align="center">
-              Task Assigner
-            </Typography>
-            <Typography variant="body2" color="text.secondary" align="center" sx={{ mb: 3 }}>
-              Sign in to your account
-            </Typography>
-
-            {error && (
-              <Alert severity="error" sx={{ mb: 2 }}>
-                {error}
-              </Alert>
-            )}
-
-            <Box component="form" onSubmit={handleSubmit}>
-              <TextField
-                fullWidth
-                label="Email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                margin="normal"
-                required
-                autoComplete="email"
-                autoFocus
-              />
-              <TextField
-                fullWidth
-                label="Password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                margin="normal"
-                required
-                autoComplete="current-password"
-              />
-              <Button
-                type="submit"
-                fullWidth
-                variant="contained"
-                sx={{ mt: 3, mb: 2 }}
-                disabled={isLoading}
+    <Box
+      sx={{
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        position: 'relative',
+        overflow: 'hidden',
+        '&::before': {
+          content: '""',
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'url("data:image/svg+xml,%3Csvg width="60" height="60" viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg"%3E%3Cg fill="none" fill-rule="evenodd"%3E%3Cg fill="%23ffffff" fill-opacity="0.05"%3E%3Ccircle cx="30" cy="30" r="2"/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")',
+        },
+      }}
+    >
+      <Container maxWidth="sm">
+        <Fade in timeout={800}>
+          <Box sx={{ position: 'relative', zIndex: 1 }}>
+            <Slide direction="up" in timeout={1000}>
+              <Card
+                sx={{
+                  width: '100%',
+                  maxWidth: 480,
+                  borderRadius: 4,
+                  overflow: 'hidden',
+                  boxShadow: '0 25px 50px rgba(0, 0, 0, 0.25)',
+                  background: 'rgba(255, 255, 255, 0.95)',
+                  backdropFilter: 'blur(10px)',
+                }}
               >
-                {isLoading ? <CircularProgress size={24} /> : 'Sign In'}
-              </Button>
-            </Box>
+                {/* Header Section */}
+                <Box
+                  sx={{
+                    background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                    p: 4,
+                    textAlign: 'center',
+                    color: 'white',
+                  }}
+                >
+                  <Avatar
+                    sx={{
+                      width: 80,
+                      height: 80,
+                      mx: 'auto',
+                      mb: 2,
+                      background: 'rgba(255, 255, 255, 0.2)',
+                      backdropFilter: 'blur(10px)',
+                    }}
+                  >
+                    <LoginIcon sx={{ fontSize: 40 }} />
+                  </Avatar>
+                  <Typography variant="h4" component="h1" gutterBottom fontWeight={700}>
+                    Task Assigner
+                  </Typography>
+                  <Typography variant="body1" sx={{ opacity: 0.9 }}>
+                    Welcome back! Please sign in to continue
+                  </Typography>
+                </Box>
 
-            <Box sx={{ mt: 2 }}>
-              <Typography variant="body2" color="text.secondary" align="center">
-                Demo Accounts:
-              </Typography>
-              <Typography variant="body2" color="text.secondary" align="center">
-                Admin: admin@taskassigner.com
-              </Typography>
-              <Typography variant="body2" color="text.secondary" align="center">
-                Staff: staff1@taskassigner.com
-              </Typography>
-            </Box>
-          </CardContent>
-        </Card>
-      </Box>
-    </Container>
+                <CardContent sx={{ p: 4 }}>
+                  {error && (
+                    <Fade in>
+                      <Alert 
+                        severity="error" 
+                        sx={{ 
+                          mb: 3,
+                          borderRadius: 2,
+                          '& .MuiAlert-icon': {
+                            fontSize: '1.2rem',
+                          },
+                        }}
+                      >
+                        {error}
+                      </Alert>
+                    </Fade>
+                  )}
+
+                  <Box component="form" onSubmit={handleSubmit}>
+                    <TextField
+                      fullWidth
+                      label="Email Address"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      margin="normal"
+                      required
+                      autoComplete="email"
+                      autoFocus
+                      sx={{
+                        '& .MuiInputLabel-root': {
+                          fontWeight: 500,
+                        },
+                      }}
+                    />
+                    <TextField
+                      fullWidth
+                      label="Password"
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      margin="normal"
+                      required
+                      autoComplete="current-password"
+                      sx={{
+                        '& .MuiInputLabel-root': {
+                          fontWeight: 500,
+                        },
+                      }}
+                    />
+                    <Button
+                      type="submit"
+                      fullWidth
+                      variant="contained"
+                      size="large"
+                      sx={{ 
+                        mt: 4, 
+                        mb: 3,
+                        py: 1.5,
+                        fontSize: '1.1rem',
+                        fontWeight: 600,
+                        borderRadius: 2,
+                      }}
+                      disabled={isLoading}
+                      startIcon={isLoading ? <CircularProgress size={20} color="inherit" /> : <LoginIcon />}
+                    >
+                      {isLoading ? 'Signing In...' : 'Sign In'}
+                    </Button>
+                  </Box>
+
+                  <Divider sx={{ my: 3 }}>
+                    <Typography variant="body2" color="text.secondary" fontWeight={500}>
+                      Demo Accounts
+                    </Typography>
+                  </Divider>
+
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <Paper
+                      elevation={0}
+                      sx={{
+                        p: 2,
+                        borderRadius: 2,
+                        border: '1px solid #e2e8f0',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        '&:hover': {
+                          borderColor: '#6366f1',
+                          transform: 'translateY(-1px)',
+                        },
+                      }}
+                      onClick={() => {
+                        setEmail('admin@taskassigner.com');
+                        setPassword('admin123');
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <Avatar sx={{ bgcolor: '#6366f1', width: 40, height: 40 }}>
+                          <AdminIcon />
+                        </Avatar>
+                        <Box sx={{ flex: 1 }}>
+                          <Typography variant="subtitle1" fontWeight={600}>
+                            Admin Account
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            admin@taskassigner.com
+                          </Typography>
+                        </Box>
+                        <Chip 
+                          label="Click to fill" 
+                          size="small" 
+                          color="primary" 
+                          variant="outlined"
+                        />
+                      </Box>
+                    </Paper>
+
+                    <Paper
+                      elevation={0}
+                      sx={{
+                        p: 2,
+                        borderRadius: 2,
+                        border: '1px solid #e2e8f0',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        '&:hover': {
+                          borderColor: '#ec4899',
+                          transform: 'translateY(-1px)',
+                        },
+                      }}
+                      onClick={() => {
+                        setEmail('staff1@taskassigner.com');
+                        setPassword('staff123');
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <Avatar sx={{ bgcolor: '#ec4899', width: 40, height: 40 }}>
+                          <PersonIcon />
+                        </Avatar>
+                        <Box sx={{ flex: 1 }}>
+                          <Typography variant="subtitle1" fontWeight={600}>
+                            Staff Account
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            staff1@taskassigner.com
+                          </Typography>
+                        </Box>
+                        <Chip 
+                          label="Click to fill" 
+                          size="small" 
+                          color="secondary" 
+                          variant="outlined"
+                        />
+                      </Box>
+                    </Paper>
+                  </Box>
+                </CardContent>
+              </Card>
+            </Slide>
+          </Box>
+        </Fade>
+      </Container>
+    </Box>
   );
 };
 

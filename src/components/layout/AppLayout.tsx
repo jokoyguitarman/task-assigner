@@ -12,6 +12,12 @@ import {
   ListItemText,
   useTheme,
   useMediaQuery,
+  Avatar,
+  Divider,
+  Chip,
+  IconButton,
+  Fade,
+  Slide,
 } from '@mui/material';
 import {
   Dashboard,
@@ -20,6 +26,9 @@ import {
   Schedule,
   Logout,
   Menu as MenuIcon,
+  AdminPanelSettings,
+  Person,
+  ChevronLeft,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -71,34 +80,146 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   ];
 
   const drawer = (
-    <Box>
-      <Toolbar>
-        <Typography variant="h6" noWrap component="div">
-          Task Assigner
-        </Typography>
-      </Toolbar>
-      <List>
-        {menuItems.map((item) => (
-          <ListItem
-            button
-            key={item.text}
-            onClick={() => {
-              navigate(item.path);
-              if (isMobile) setMobileOpen(false);
-            }}
-            selected={location.pathname === item.path}
-          >
-            <ListItemIcon>{item.icon}</ListItemIcon>
-            <ListItemText primary={item.text} />
-          </ListItem>
-        ))}
-        <ListItem button onClick={handleLogout}>
-          <ListItemIcon>
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {/* Header */}
+      <Box
+        sx={{
+          p: 3,
+          background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+          color: 'white',
+          position: 'relative',
+          overflow: 'hidden',
+          '&::before': {
+            content: '""',
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            width: 100,
+            height: 100,
+            background: 'rgba(255, 255, 255, 0.1)',
+            borderRadius: '50%',
+            transform: 'translate(30px, -30px)',
+          },
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, position: 'relative', zIndex: 1 }}>
+          <Avatar sx={{ bgcolor: 'rgba(255, 255, 255, 0.2)', width: 48, height: 48 }}>
+            {user?.role === 'admin' ? <AdminPanelSettings /> : <Person />}
+          </Avatar>
+          <Box>
+            <Typography variant="h6" fontWeight={700} noWrap>
+              Task Assigner
+            </Typography>
+            <Typography variant="body2" sx={{ opacity: 0.9 }}>
+              {user?.role === 'admin' ? 'Admin Panel' : 'Staff Portal'}
+            </Typography>
+          </Box>
+        </Box>
+      </Box>
+
+      {/* User Info */}
+      <Box sx={{ p: 2, borderBottom: '1px solid #e2e8f0' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Avatar sx={{ bgcolor: user?.role === 'admin' ? 'primary.main' : 'secondary.main', width: 40, height: 40 }}>
+            {user?.role === 'admin' ? <AdminPanelSettings /> : <Person />}
+          </Avatar>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography variant="subtitle2" fontWeight={600} noWrap>
+              {user?.name}
+            </Typography>
+            <Chip
+              label={user?.role === 'admin' ? 'Administrator' : 'Staff Member'}
+              size="small"
+              color={user?.role === 'admin' ? 'primary' : 'secondary'}
+              variant="outlined"
+              sx={{ mt: 0.5, fontSize: '0.75rem' }}
+            />
+          </Box>
+        </Box>
+      </Box>
+
+      {/* Navigation */}
+      <Box sx={{ flex: 1, overflow: 'auto' }}>
+        <List sx={{ p: 1 }}>
+          {menuItems.map((item, index) => (
+            <Slide direction="right" in timeout={600 + index * 100} key={item.text}>
+              <ListItem
+                button
+                onClick={() => {
+                  navigate(item.path);
+                  if (isMobile) setMobileOpen(false);
+                }}
+                selected={location.pathname === item.path}
+                sx={{
+                  borderRadius: 2,
+                  mb: 0.5,
+                  mx: 1,
+                  transition: 'all 0.2s ease',
+                  '&.Mui-selected': {
+                    backgroundColor: user?.role === 'admin' ? 'rgba(99, 102, 241, 0.1)' : 'rgba(236, 72, 153, 0.1)',
+                    borderLeft: `4px solid ${user?.role === 'admin' ? '#6366f1' : '#ec4899'}`,
+                    '&:hover': {
+                      backgroundColor: user?.role === 'admin' ? 'rgba(99, 102, 241, 0.15)' : 'rgba(236, 72, 153, 0.15)',
+                    },
+                  },
+                  '&:hover': {
+                    backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                    transform: 'translateX(4px)',
+                  },
+                }}
+              >
+                <ListItemIcon
+                  sx={{
+                    color: location.pathname === item.path 
+                      ? (user?.role === 'admin' ? 'primary.main' : 'secondary.main')
+                      : 'text.secondary',
+                    minWidth: 40,
+                  }}
+                >
+                  {item.icon}
+                </ListItemIcon>
+                <ListItemText 
+                  primary={item.text}
+                  primaryTypographyProps={{
+                    fontWeight: location.pathname === item.path ? 600 : 500,
+                    color: location.pathname === item.path 
+                      ? (user?.role === 'admin' ? 'primary.main' : 'secondary.main')
+                      : 'text.primary',
+                  }}
+                />
+              </ListItem>
+            </Slide>
+          ))}
+        </List>
+      </Box>
+
+      {/* Logout */}
+      <Box sx={{ p: 1, borderTop: '1px solid #e2e8f0' }}>
+        <ListItem
+          button
+          onClick={handleLogout}
+          sx={{
+            borderRadius: 2,
+            mx: 1,
+            transition: 'all 0.2s ease',
+            '&:hover': {
+              backgroundColor: 'rgba(239, 68, 68, 0.1)',
+              transform: 'translateX(4px)',
+            },
+          }}
+        >
+          <ListItemIcon sx={{ color: 'error.main', minWidth: 40 }}>
             <Logout />
           </ListItemIcon>
-          <ListItemText primary="Logout" />
+          <ListItemText 
+            primary="Logout"
+            primaryTypographyProps={{
+              fontWeight: 500,
+              color: 'error.main',
+            }}
+          />
         </ListItem>
-      </List>
+      </Box>
     </Box>
   );
 
@@ -106,28 +227,57 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     <Box sx={{ display: 'flex' }}>
       <AppBar
         position="fixed"
+        elevation={0}
         sx={{
           width: { md: `calc(100% - 240px)` },
           ml: { md: '240px' },
+          backgroundColor: 'rgba(255, 255, 255, 0.95)',
+          backdropFilter: 'blur(10px)',
+          borderBottom: '1px solid rgba(226, 232, 240, 0.8)',
+          color: 'text.primary',
         }}
       >
         <Toolbar>
           {isMobile && (
-            <Button
+            <IconButton
               color="inherit"
               aria-label="open drawer"
               onClick={handleDrawerToggle}
-              sx={{ mr: 2 }}
+              sx={{ 
+                mr: 2,
+                color: 'text.primary',
+                '&:hover': {
+                  backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                },
+              }}
             >
               <MenuIcon />
-            </Button>
+            </IconButton>
           )}
-          <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
-            Welcome, {user?.name}
-          </Typography>
-          <Typography variant="body2" sx={{ mr: 2 }}>
-            {user?.role === 'admin' ? 'Administrator' : 'Staff Member'}
-          </Typography>
+          <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box>
+              <Typography variant="h6" fontWeight={600} noWrap component="div">
+                Welcome back, {user?.name}! 👋
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {new Date().toLocaleDateString('en-US', { 
+                  weekday: 'long', 
+                  year: 'numeric', 
+                  month: 'long', 
+                  day: 'numeric' 
+                })}
+              </Typography>
+            </Box>
+          </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Chip
+              icon={user?.role === 'admin' ? <AdminPanelSettings /> : <Person />}
+              label={user?.role === 'admin' ? 'Administrator' : 'Staff Member'}
+              color={user?.role === 'admin' ? 'primary' : 'secondary'}
+              variant="outlined"
+              sx={{ fontWeight: 500 }}
+            />
+          </Box>
         </Toolbar>
       </AppBar>
 
@@ -157,12 +307,17 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         component="main"
         sx={{
           flexGrow: 1,
-          p: 3,
           width: { md: `calc(100% - 240px)` },
           mt: 8,
+          backgroundColor: '#f8fafc',
+          minHeight: 'calc(100vh - 64px)',
         }}
       >
-        {children}
+        <Fade in timeout={600}>
+          <Box sx={{ p: 3 }}>
+            {children}
+          </Box>
+        </Fade>
       </Box>
     </Box>
   );
