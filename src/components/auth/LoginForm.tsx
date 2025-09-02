@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Box,
   Card,
@@ -29,8 +29,18 @@ const LoginForm: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const { login, isLoading } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  useEffect(() => {
+    // Check for success message from signup
+    const message = searchParams.get('message');
+    if (message === 'admin-created') {
+      setSuccess('Admin account created successfully! You can now sign in.');
+    }
+  }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -133,6 +143,23 @@ const LoginForm: React.FC = () => {
                     </Fade>
                   )}
 
+                  {success && (
+                    <Fade in>
+                      <Alert 
+                        severity="success" 
+                        sx={{ 
+                          mb: 3,
+                          borderRadius: 2,
+                          '& .MuiAlert-icon': {
+                            fontSize: '1.2rem',
+                          },
+                        }}
+                      >
+                        {success}
+                      </Alert>
+                    </Fade>
+                  )}
+
                   <Box component="form" onSubmit={handleSubmit}>
                     <TextField
                       fullWidth
@@ -182,6 +209,24 @@ const LoginForm: React.FC = () => {
                       startIcon={isLoading ? <CircularProgress size={20} color="inherit" /> : <LoginIcon />}
                     >
                       {isLoading ? 'Signing In...' : 'Sign In'}
+                    </Button>
+                  </Box>
+
+                  <Box textAlign="center" sx={{ my: 3 }}>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                      Don't have an account yet?
+                    </Typography>
+                    <Button
+                      variant="outlined"
+                      onClick={() => navigate('/admin-signup')}
+                      sx={{
+                        textTransform: 'none',
+                        borderRadius: 2,
+                        px: 3,
+                        py: 1,
+                      }}
+                    >
+                      Create Admin Account
                     </Button>
                   </Box>
 

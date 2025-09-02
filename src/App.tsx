@@ -6,9 +6,15 @@ import { QueryClient, QueryClientProvider } from 'react-query';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import AppLayout from './components/layout/AppLayout';
 import LoginForm from './components/auth/LoginForm';
+import AdminSignup from './components/auth/AdminSignup';
 import AdminDashboard from './components/admin/Dashboard';
 import TaskList from './components/admin/TaskList';
 import AssignmentList from './components/admin/AssignmentList';
+import OutletManagement from './components/admin/OutletManagement';
+import StaffEnrollment from './components/admin/StaffEnrollment';
+import MonthlyScheduler from './components/admin/MonthlyScheduler';
+import StaffAccountCreation from './components/admin/StaffAccountCreation';
+import TaskCompletionReports from './components/admin/TaskCompletionReports';
 import StaffDashboard from './components/staff/StaffDashboard';
 import TaskCompletion from './components/staff/TaskCompletion';
 
@@ -177,8 +183,12 @@ const AdminRoutes: React.FC = () => (
   <Routes>
     <Route path="/dashboard" element={<AdminDashboard />} />
     <Route path="/tasks" element={<TaskList />} />
+    <Route path="/staff" element={<StaffEnrollment />} />
+    <Route path="/staff-accounts" element={<StaffAccountCreation />} />
+    <Route path="/outlets" element={<OutletManagement />} />
+    <Route path="/scheduler" element={<MonthlyScheduler />} />
     <Route path="/assignments" element={<AssignmentList />} />
-    <Route path="/schedule" element={<div>Schedule Management - Coming Soon</div>} />
+    <Route path="/reports" element={<TaskCompletionReports />} />
     <Route path="*" element={<Navigate to="/dashboard" replace />} />
   </Routes>
 );
@@ -199,6 +209,7 @@ const AppRoutes: React.FC = () => {
   return (
     <Routes>
       <Route path="/login" element={<LoginForm />} />
+      <Route path="/admin-signup" element={<AdminSignup />} />
       <Route 
         path="/admin/*" 
         element={

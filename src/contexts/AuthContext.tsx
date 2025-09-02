@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User, AuthContextType } from '../types';
+import { authAPI } from '../services/supabaseService';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -28,21 +29,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const login = async (email: string, password: string): Promise<void> => {
     setIsLoading(true);
     try {
-      // Simulate API call - replace with actual authentication
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Mock user data - replace with actual API response
-      const mockUser: User = {
-        id: '1',
-        email,
-        name: email.split('@')[0],
-        role: email.includes('admin') ? 'admin' : 'staff',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      setUser(mockUser);
-      localStorage.setItem('user', JSON.stringify(mockUser));
+      // Use Supabase authentication
+      const user = await authAPI.login(email, password);
+      setUser(user);
+      localStorage.setItem('user', JSON.stringify(user));
     } catch (error) {
       console.error('Login error:', error);
       throw new Error('Login failed');
@@ -51,9 +41,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  const logout = (): void => {
-    setUser(null);
-    localStorage.removeItem('user');
+  const logout = async (): Promise<void> => {
+    try {
+      await authAPI.logout();
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      setUser(null);
+      localStorage.removeItem('user');
+    }
   };
 
   const value: AuthContextType = {

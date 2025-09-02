@@ -65,4 +65,107 @@ export interface AssignmentFormData {
   taskId: string;
   staffId: string;
   dueDate: Date;
+  dueTime?: string;
+  outletId?: string;
+}
+
+// Staff Management Types
+export interface StaffPosition {
+  id: string;
+  name: string;
+  description?: string;
+  isCustom: boolean;
+  createdBy?: string;
+  createdAt: Date;
+}
+
+export interface Outlet {
+  id: string;
+  name: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  managerId?: string;
+  isActive: boolean;
+  createdAt: Date;
+}
+
+export interface StaffProfile {
+  id: string;
+  userId: string;
+  positionId: string;
+  employeeId: string;
+  hireDate: Date;
+  isActive: boolean;
+  createdAt: Date;
+  // Populated fields
+  user?: User;
+  position?: StaffPosition;
+}
+
+export interface MonthlySchedule {
+  id: string;
+  staffId: string;
+  month: number; // 1-12
+  year: number;
+  createdBy: string;
+  createdAt: Date;
+  // Populated fields
+  staff?: StaffProfile;
+  dailySchedules?: DailySchedule[];
+}
+
+export interface DailySchedule {
+  id: string;
+  monthlyScheduleId: string;
+  scheduleDate: Date;
+  outletId: string;
+  timeIn?: string; // HH:MM format
+  timeOut?: string; // HH:MM format
+  isDayOff: boolean;
+  dayOffType?: 'vacation' | 'sick' | 'personal' | 'other';
+  notes?: string;
+  createdAt: Date;
+  // Populated fields
+  outlet?: Outlet;
+}
+
+export interface TaskCompletionProof {
+  id: string;
+  assignmentId: string;
+  filePath: string;
+  fileType: 'image' | 'video';
+  fileSize?: number;
+  uploadedAt: Date;
+  createdBy: string;
+}
+
+// Form Data Types
+export interface StaffEnrollmentFormData {
+  name: string;
+  email: string;
+  phone?: string;
+  positionId: string;
+  customPositionName?: string;
+  customPositionDescription?: string;
+  employeeId?: string;
+  hireDate: Date;
+}
+
+export interface OutletFormData {
+  name: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  managerId?: string;
+}
+
+export interface DailyScheduleFormData {
+  scheduleDate: Date;
+  outletId: string;
+  timeIn?: string;
+  timeOut?: string;
+  isDayOff: boolean;
+  dayOffType?: string;
+  notes?: string;
 }

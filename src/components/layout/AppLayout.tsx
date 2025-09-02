@@ -29,6 +29,10 @@ import {
   AdminPanelSettings,
   Person,
   ChevronLeft,
+  Business,
+  GroupAdd,
+  CalendarMonth,
+  Assessment,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -67,14 +71,34 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     },
     ...(user?.role === 'admin' ? [
       {
-        text: 'Assignments',
+        text: 'Staff Management',
+        icon: <GroupAdd />,
+        path: '/staff',
+      },
+      {
+        text: 'Staff Accounts',
+        icon: <Person />,
+        path: '/staff-accounts',
+      },
+      {
+        text: 'Outlet Management',
+        icon: <Business />,
+        path: '/outlets',
+      },
+      {
+        text: 'Monthly Scheduler',
+        icon: <CalendarMonth />,
+        path: '/scheduler',
+      },
+      {
+        text: 'Task Assignments',
         icon: <People />,
         path: '/assignments',
       },
       {
-        text: 'Schedule',
-        icon: <Schedule />,
-        path: '/schedule',
+        text: 'Reports',
+        icon: <Assessment />,
+        path: '/reports',
       },
     ] : []),
   ];
