@@ -30,14 +30,16 @@ import {
   Schedule,
   Visibility,
 } from '@mui/icons-material';
-import { TaskAssignment, Task, User } from '../../types';
-import { assignmentsAPI, tasksAPI, usersAPI } from '../../services/api';
+import { TaskAssignment, Task, User, StaffProfile, Outlet } from '../../types';
+import { assignmentsAPI, tasksAPI, usersAPI, staffProfilesAPI, outletsAPI } from '../../services/supabaseService';
 import AssignmentForm from './AssignmentForm';
 
 const AssignmentList: React.FC = () => {
   const [assignments, setAssignments] = useState<TaskAssignment[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [staff, setStaff] = useState<User[]>([]);
+  const [staffProfiles, setStaffProfiles] = useState<StaffProfile[]>([]);
+  const [outlets, setOutlets] = useState<Outlet[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedAssignment, setSelectedAssignment] = useState<TaskAssignment | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -50,14 +52,24 @@ const AssignmentList: React.FC = () => {
 
   const loadData = async () => {
     try {
-      const [assignmentsData, tasksData, staffData] = await Promise.all([
+      const [assignmentsData, tasksData, staffData, staffProfilesData, outletsData] = await Promise.all([
         assignmentsAPI.getAll(),
         tasksAPI.getAll(),
         usersAPI.getAll(),
+        staffProfilesAPI.getAll(),
+        outletsAPI.getAll(),
       ]);
       setAssignments(assignmentsData);
       setTasks(tasksData);
       setStaff(staffData);
+      setStaffProfiles(staffProfilesData);
+      setOutlets(outletsData);
+      
+      console.log('📊 Assignment List Data:');
+      console.log('Assignments:', assignmentsData);
+      console.log('Staff Profiles:', staffProfilesData);
+      console.log('Users:', staffData);
+      console.log('Outlets:', outletsData);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -121,14 +133,24 @@ const AssignmentList: React.FC = () => {
     return task ? task.title : 'Unknown Task';
   };
 
-  const getStaffName = (staffId: string) => {
-    const member = staff.find(s => s.id === staffId);
-    return member ? member.name : 'Unknown Staff';
+  const getStaffName = (staffId?: string) => {
+    if (!staffId) return 'Unassigned';
+    const staffProfile = staffProfiles.find(sp => sp.id === staffId);
+    const user = staffProfile ? staff.find(u => u.id === staffProfile.userId) : null;
+    return user?.name || staffProfile?.user?.name || 'Unknown Staff';
   };
 
-  const getStaffEmail = (staffId: string) => {
-    const member = staff.find(s => s.id === staffId);
-    return member ? member.email : '';
+  const getStaffEmail = (staffId?: string) => {
+    if (!staffId) return 'Available for self-assignment';
+    const staffProfile = staffProfiles.find(sp => sp.id === staffId);
+    const user = staffProfile ? staff.find(u => u.id === staffProfile.userId) : null;
+    return user?.email || staffProfile?.user?.email || '';
+  };
+
+  const getOutletName = (outletId?: string): string => {
+    if (!outletId) return 'No location assigned';
+    const outlet = outlets.find(o => o.id === outletId);
+    return outlet?.name || 'Unknown location';
   };
 
   if (loading) {
@@ -158,6 +180,7 @@ const AssignmentList: React.FC = () => {
                 <TableRow>
                   <TableCell>Task</TableCell>
                   <TableCell>Assigned To</TableCell>
+                  <TableCell>Location</TableCell>
                   <TableCell>Assigned Date</TableCell>
                   <TableCell>Due Date</TableCell>
                   <TableCell>Status</TableCell>
@@ -175,7 +198,12 @@ const AssignmentList: React.FC = () => {
                     </TableCell>
                     <TableCell>
                       <Box display="flex" alignItems="center">
-                        <Avatar sx={{ width: 32, height: 32, mr: 1 }}>
+                        <Avatar sx={{ 
+                          width: 32, 
+                          height: 32, 
+                          mr: 1,
+                          bgcolor: assignment.staffId ? 'primary.main' : 'grey.400'
+                        }}>
                           {getStaffName(assignment.staffId).charAt(0)}
                         </Avatar>
                         <Box>
@@ -187,6 +215,11 @@ const AssignmentList: React.FC = () => {
                           </Typography>
                         </Box>
                       </Box>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="subtitle2" color="primary">
+                        {assignment.outletId ? getOutletName(assignment.outletId) : 'No location assigned'}
+                      </Typography>
                     </TableCell>
                     <TableCell>
                       {new Date(assignment.assignedDate).toLocaleDateString()}

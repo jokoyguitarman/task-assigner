@@ -2,7 +2,7 @@ export interface User {
   id: string;
   email: string;
   name: string;
-  role: 'admin' | 'staff';
+  role: 'admin' | 'staff' | 'outlet';
   createdAt: Date;
   updatedAt: Date;
 }
@@ -23,9 +23,10 @@ export interface Task {
 export interface TaskAssignment {
   id: string;
   taskId: string;
-  staffId: string;
+  staffId?: string;
   assignedDate: Date;
   dueDate: Date;
+  outletId?: string;
   status: 'pending' | 'completed' | 'overdue';
   completedAt?: Date;
   completionProof?: string; // URL to photo/video
@@ -50,6 +51,9 @@ export interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   isLoading: boolean;
+  // Outlet-specific data
+  currentOutlet?: Outlet | null;
+  isOutletUser: boolean;
 }
 
 export interface TaskFormData {
@@ -63,7 +67,7 @@ export interface TaskFormData {
 
 export interface AssignmentFormData {
   taskId: string;
-  staffId: string;
+  staffId?: string;
   dueDate: Date;
   dueTime?: string;
   outletId?: string;
@@ -86,8 +90,12 @@ export interface Outlet {
   phone?: string;
   email?: string;
   managerId?: string;
+  userId?: string; // Link to auth.users for outlet login
   isActive: boolean;
   createdAt: Date;
+  // Login credentials for outlet access
+  username?: string;
+  password?: string;
 }
 
 export interface StaffProfile {
@@ -98,6 +106,9 @@ export interface StaffProfile {
   hireDate: Date;
   isActive: boolean;
   createdAt: Date;
+  // Login credentials for staff access
+  username?: string;
+  password?: string;
   // Populated fields
   user?: User;
   position?: StaffPosition;
@@ -150,6 +161,8 @@ export interface StaffEnrollmentFormData {
   customPositionDescription?: string;
   employeeId?: string;
   hireDate: Date;
+  username?: string;
+  password?: string;
 }
 
 export interface OutletFormData {
@@ -158,6 +171,8 @@ export interface OutletFormData {
   phone?: string;
   email?: string;
   managerId?: string;
+  username?: string;
+  password?: string;
 }
 
 export interface DailyScheduleFormData {
@@ -168,4 +183,35 @@ export interface DailyScheduleFormData {
   isDayOff: boolean;
   dayOffType?: string;
   notes?: string;
+}
+
+// Invitation System Types
+export interface Invitation {
+  id: string;
+  email: string;
+  role: 'staff' | 'outlet';
+  outletId?: string;
+  token: string;
+  expiresAt: Date;
+  usedAt?: Date;
+  createdBy: string;
+  createdAt: Date;
+  updatedAt: Date;
+  // Populated fields
+  outlet?: Outlet;
+  createdByUser?: User;
+}
+
+export interface InvitationFormData {
+  email: string;
+  role: 'staff' | 'outlet';
+  outletId?: string;
+}
+
+export interface SignupFormData {
+  name: string;
+  password: string;
+  confirmPassword: string;
+  role: 'staff' | 'outlet';
+  outletId?: string;
 }

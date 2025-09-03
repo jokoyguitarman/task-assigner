@@ -35,19 +35,16 @@ import {
 } from '@mui/material';
 import {
   Add as AddIcon,
-  Edit as EditIcon,
   Delete as DeleteIcon,
   Person as PersonIcon,
   Email as EmailIcon,
   CheckCircle as CheckCircleIcon,
-  Pending as PendingIcon,
   Send as SendIcon,
-  Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
-import { staffProfilesAPI, staffPositionsAPI, outletsAPI, authAPI } from '../../services/supabaseService';
+import { staffProfilesAPI, staffPositionsAPI, outletsAPI, authAPI, usersAPI } from '../../services/supabaseService';
 import { StaffProfile, StaffPosition, Outlet } from '../../types';
 
 interface StaffAccount {
@@ -64,7 +61,7 @@ interface StaffAccount {
 }
 
 const StaffAccountCreation: React.FC = () => {
-  const [staffAccounts, setStaffAccounts] = useState<StaffAccount[]>([]);
+  const [staffProfiles, setStaffProfiles] = useState<StaffProfile[]>([]);
   const [positions, setPositions] = useState<StaffPosition[]>([]);
   const [outlets, setOutlets] = useState<Outlet[]>([]);
   const [loading, setLoading] = useState(true);
@@ -88,39 +85,14 @@ const StaffAccountCreation: React.FC = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [positionsData, outletsData] = await Promise.all([
+      const [positionsData, outletsData, staffData] = await Promise.all([
         staffPositionsAPI.getAll(),
         outletsAPI.getAll(),
+        staffProfilesAPI.getAll(),
       ]);
       setPositions(positionsData);
       setOutlets(outletsData);
-      
-      // Load existing staff accounts (mock data for now)
-      setStaffAccounts([
-        {
-          id: '1',
-          email: 'john.doe@company.com',
-          name: 'John Doe',
-          positionId: '1',
-          outletId: '1',
-          employeeId: 'EMP001',
-          hireDate: new Date(),
-          status: 'confirmed',
-          confirmationSentAt: new Date(Date.now() - 86400000),
-          confirmedAt: new Date(Date.now() - 3600000),
-        },
-        {
-          id: '2',
-          email: 'jane.smith@company.com',
-          name: 'Jane Smith',
-          positionId: '2',
-          outletId: '1',
-          employeeId: 'EMP002',
-          hireDate: new Date(),
-          status: 'pending',
-          confirmationSentAt: new Date(Date.now() - 3600000),
-        },
-      ]);
+      setStaffProfiles(staffData);
     } catch (err) {
       setError('Failed to load data');
     } finally {
@@ -196,7 +168,7 @@ const StaffAccountCreation: React.FC = () => {
       }
 
       // Generate employee ID if not provided
-      const employeeId = formData.employeeId || `EMP${String(staffAccounts.length + 1).padStart(3, '0')}`;
+      const employeeId = formData.employeeId || `EMP${String(staffProfiles.length + 1).padStart(3, '0')}`;
 
       if (editingAccount) {
         // Update existing account - TODO: Implement update functionality
@@ -210,12 +182,14 @@ const StaffAccountCreation: React.FC = () => {
         await staffProfilesAPI.create({
           userId: user.id,
           positionId: formData.positionId,
-          employeeId: formData.employeeId || `EMP${String(staffAccounts.length + 1).padStart(3, '0')}`,
+          employeeId: employeeId,
           hireDate: formData.hireDate,
           isActive: true,
         });
         
-        setSuccess('Staff account created and confirmation email sent');
+        // Reload the data to show the new staff member
+        await loadData();
+        setSuccess('Staff account created successfully');
       }
 
       setTimeout(() => {
@@ -226,24 +200,25 @@ const StaffAccountCreation: React.FC = () => {
     }
   };
 
-  const handleSendConfirmation = async (account: StaffAccount) => {
-    try {
-      // TODO: Implement actual email sending
-      setStaffAccounts(prev => prev.map(acc => 
-        acc.id === account.id 
-          ? { ...acc, confirmationSentAt: new Date() }
-          : acc
-      ));
-      setSuccess(`Confirmation email sent to ${account.email}`);
-    } catch (err) {
-      setError('Failed to send confirmation email');
-    }
-  };
 
-  const handleDelete = async (account: StaffAccount) => {
-    if (window.confirm(`Are you sure you want to delete the account for "${account.name}"?`)) {
-      setStaffAccounts(prev => prev.filter(acc => acc.id !== account.id));
-      setSuccess('Staff account deleted successfully');
+
+  const handleDelete = async (staff: StaffProfile) => {
+    if (window.confirm(`Are you sure you want to delete the account for "${staff.user?.name}"?`)) {
+      try {
+        // Delete the staff profile
+        await staffProfilesAPI.delete(staff.id);
+        
+        // Also delete the user account if it exists
+        if (staff.user?.id) {
+          await usersAPI.delete(staff.user.id);
+        }
+        
+        // Reload the data
+        await loadData();
+        setSuccess('Staff account deleted successfully');
+      } catch (err) {
+        setError('Failed to delete staff account');
+      }
     }
   };
 
@@ -257,23 +232,7 @@ const StaffAccountCreation: React.FC = () => {
     }));
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'confirmed': return 'success';
-      case 'pending': return 'warning';
-      case 'active': return 'primary';
-      default: return 'default';
-    }
-  };
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'confirmed': return <CheckCircleIcon />;
-      case 'pending': return <PendingIcon />;
-      case 'active': return <PersonIcon />;
-      default: return <PersonIcon />;
-    }
-  };
 
   if (loading) {
     return (
@@ -337,10 +296,10 @@ const StaffAccountCreation: React.FC = () => {
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
-                Staff Accounts ({staffAccounts.length})
+                Staff Accounts ({staffProfiles.length})
               </Typography>
               
-              {staffAccounts.length === 0 ? (
+              {staffProfiles.length === 0 ? (
                 <Box textAlign="center" py={4}>
                   <PersonIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
                   <Typography variant="h6" color="text.secondary" gutterBottom>
@@ -366,13 +325,13 @@ const StaffAccountCreation: React.FC = () => {
                         <TableCell><strong>Position</strong></TableCell>
                         <TableCell><strong>Outlet</strong></TableCell>
                         <TableCell><strong>Status</strong></TableCell>
-                        <TableCell><strong>Confirmation</strong></TableCell>
+                        <TableCell><strong>Hire Date</strong></TableCell>
                         <TableCell align="center"><strong>Actions</strong></TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {staffAccounts.map((account, index) => (
-                        <Slide key={account.id} direction="up" in timeout={300 + index * 100}>
+                      {staffProfiles.map((staff, index) => (
+                        <Slide key={staff.id} direction="up" in timeout={300 + index * 100}>
                           <TableRow hover>
                             <TableCell>
                               <Box display="flex" alignItems="center">
@@ -381,61 +340,46 @@ const StaffAccountCreation: React.FC = () => {
                                 </Avatar>
                                 <Box>
                                   <Typography variant="subtitle2" fontWeight="bold">
-                                    {account.name}
+                                    {staff.user?.name || 'Unknown Name'}
                                   </Typography>
                                   <Typography variant="body2" color="text.secondary">
-                                    {account.email}
+                                    {staff.user?.email || 'No email'}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    ID: {staff.employeeId}
                                   </Typography>
                                 </Box>
                               </Box>
                             </TableCell>
                             <TableCell>
                               <Typography variant="body2">
-                                {positions.find(p => p.id === account.positionId)?.name || 'Unknown'}
+                                {staff.position?.name || 'Unknown Position'}
                               </Typography>
                             </TableCell>
                             <TableCell>
                               <Typography variant="body2">
-                                {outlets.find(o => o.id === account.outletId)?.name || 'Unknown'}
+                                No outlet assigned
                               </Typography>
                             </TableCell>
                             <TableCell>
                               <Chip
-                                icon={getStatusIcon(account.status)}
-                                label={account.status.charAt(0).toUpperCase() + account.status.slice(1)}
-                                color={getStatusColor(account.status) as any}
+                                icon={<PersonIcon />}
+                                label={staff.isActive ? 'Active' : 'Inactive'}
+                                color={staff.isActive ? 'success' : 'default'}
                                 size="small"
                               />
                             </TableCell>
                             <TableCell>
-                              {account.status === 'pending' && (
-                                <Button
-                                  size="small"
-                                  startIcon={<SendIcon />}
-                                  onClick={() => handleSendConfirmation(account)}
-                                  variant="outlined"
-                                >
-                                  Resend
-                                </Button>
-                              )}
-                              {account.status === 'confirmed' && (
-                                <Typography variant="caption" color="success.main">
-                                  Confirmed
-                                </Typography>
-                              )}
+                              <Typography variant="caption" color="text.secondary">
+                                Hired: {staff.hireDate ? new Date(staff.hireDate).toLocaleDateString() : 'Unknown'}
+                              </Typography>
                             </TableCell>
                             <TableCell align="center">
                               <IconButton
                                 size="small"
-                                onClick={() => handleOpenDialog(account)}
-                                sx={{ mr: 1 }}
-                              >
-                                <EditIcon />
-                              </IconButton>
-                              <IconButton
-                                size="small"
-                                onClick={() => handleDelete(account)}
+                                onClick={() => handleDelete(staff)}
                                 color="error"
+                                title="Delete staff account"
                               >
                                 <DeleteIcon />
                               </IconButton>

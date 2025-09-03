@@ -19,7 +19,8 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { useForm, Controller } from 'react-hook-form';
 import { TaskFormData } from '../../types';
-import { tasksAPI } from '../../services/api';
+import { tasksAPI } from '../../services/supabaseService';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface TaskFormProps {
   taskId?: string;
@@ -28,6 +29,7 @@ interface TaskFormProps {
 }
 
 const TaskForm: React.FC<TaskFormProps> = ({ taskId, onSuccess, onCancel }) => {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const { control, handleSubmit, watch, formState: { errors } } = useForm<TaskFormData>({
     defaultValues: {
@@ -47,9 +49,13 @@ const TaskForm: React.FC<TaskFormProps> = ({ taskId, onSuccess, onCancel }) => {
       if (taskId) {
         await tasksAPI.update(taskId, data);
       } else {
+        if (!user?.id) {
+          throw new Error('User not authenticated');
+        }
+        
         await tasksAPI.create({
           ...data,
-          createdBy: '1', // Mock admin ID
+          createdBy: user.id,
         });
       }
       onSuccess();

@@ -29,10 +29,11 @@ import {
   AccessTime,
   TaskAlt,
   Dashboard as DashboardIcon,
+  Email as EmailIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { TaskAssignment, Task } from '../../types';
-import { assignmentsAPI, tasksAPI } from '../../services/api';
+import { assignmentsAPI, tasksAPI } from '../../services/supabaseService';
 
 const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -481,6 +482,23 @@ const AdminDashboard: React.FC = () => {
                       }}
                     >
                       Schedule Tasks
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      startIcon={<EmailIcon />}
+                      onClick={() => navigate('/invitations')}
+                      fullWidth
+                      sx={{ 
+                        borderRadius: 2,
+                        py: 1.5,
+                        borderColor: '#e2e8f0',
+                        '&:hover': {
+                          borderColor: '#6366f1',
+                          backgroundColor: 'rgba(99, 102, 241, 0.04)',
+                        },
+                      }}
+                    >
+                      Send Invitations
                     </Button>
                   </Box>
                 </CardContent>

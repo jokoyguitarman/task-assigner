@@ -52,8 +52,8 @@ const LoginForm: React.FC = () => {
     }
 
     try {
+      // Normal email login for all users
       await login(email, password);
-      // Navigate to dashboard after successful login
       navigate('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
@@ -160,7 +160,7 @@ const LoginForm: React.FC = () => {
                     </Fade>
                   )}
 
-                  <Box component="form" onSubmit={handleSubmit}>
+                  <Box component="form" onSubmit={handleSubmit} noValidate>
                     <TextField
                       fullWidth
                       label="Email Address"
@@ -169,6 +169,7 @@ const LoginForm: React.FC = () => {
                       onChange={(e) => setEmail(e.target.value)}
                       margin="normal"
                       required
+                      helperText="Enter your email address"
                       autoComplete="email"
                       autoFocus
                       sx={{

@@ -19,7 +19,7 @@ import {
 } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
 import { TaskAssignment, Task } from '../../types';
-import { assignmentsAPI, tasksAPI } from '../../services/api';
+import { assignmentsAPI, tasksAPI } from '../../services/supabaseService';
 
 const TaskCompletion: React.FC = () => {
   const { assignmentId } = useParams<{ assignmentId: string }>();

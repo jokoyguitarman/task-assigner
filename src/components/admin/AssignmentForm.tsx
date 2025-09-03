@@ -42,7 +42,7 @@ import {
   staffProfilesAPI, 
   outletsAPI, 
   monthlySchedulesAPI 
-} from '../../services/api';
+} from '../../services/supabaseService';
 
 interface AssignmentFormProps {
   assignmentId?: string;
@@ -59,6 +59,7 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
   const [loadingData, setLoadingData] = useState(true);
   const [smartAssignment, setSmartAssignment] = useState(true);
   const [availableStaff, setAvailableStaff] = useState<StaffProfile[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   const { control, handleSubmit, watch, formState: { errors } } = useForm<AssignmentFormData>({
     defaultValues: {
@@ -91,6 +92,12 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
       setStaff(staffData);
       setStaffProfiles(staffProfilesData);
       setOutlets(outletsData);
+      
+      console.log('📊 Assignment Form Data Loaded:');
+      console.log('Tasks:', tasksData.length, tasksData);
+      console.log('Staff:', staffData.length, staffData);
+      console.log('Staff Profiles:', staffProfilesData.length, staffProfilesData);
+      console.log('Outlets:', outletsData.length, outletsData);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -117,7 +124,8 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
 
     for (const staffProfile of staffProfiles) {
       try {
-        const monthlySchedule = await monthlySchedulesAPI.getByStaff(staffProfile.id, month, year);
+        const monthlySchedules = await monthlySchedulesAPI.getByStaff(staffProfile.id);
+        const monthlySchedule = monthlySchedules.find(ms => ms.month === month && ms.year === year);
         
         if (monthlySchedule) {
           const dailySchedule = monthlySchedule.dailySchedules?.find(ds => 
@@ -164,20 +172,32 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
   };
 
   const onSubmit = async (data: AssignmentFormData) => {
+    console.log('🔄 AssignmentForm onSubmit called with data:', data);
+    console.log('🔄 AssignmentId:', assignmentId);
+    console.log('🔄 SelectedOutletId:', selectedOutletId);
+    
     setLoading(true);
     try {
       if (assignmentId) {
+        console.log('📝 Updating existing assignment...');
         await assignmentsAPI.update(assignmentId, data);
+        console.log('✅ Assignment updated successfully');
       } else {
+        console.log('📝 Creating new assignment...');
         await assignmentsAPI.create({
-          ...data,
+          taskId: data.taskId,
+          staffId: data.staffId || undefined,
           assignedDate: new Date(),
+          dueDate: data.dueDate,
+          outletId: selectedOutletId || undefined,
           status: 'pending',
         });
+        console.log('✅ Assignment created successfully');
       }
       onSuccess();
     } catch (error) {
-      console.error('Error saving assignment:', error);
+      console.error('❌ Error saving assignment:', error);
+      // TODO: Add error state to show user feedback
     } finally {
       setLoading(false);
     }
@@ -293,15 +313,14 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
                 <Controller
                   name="dueTime"
                   control={control}
-                  rules={{ required: 'Due time is required' }}
                   render={({ field }) => (
                     <TextField
                       {...field}
                       fullWidth
-                      label="Due Time"
+                      label="Due Time (Optional)"
                       type="time"
                       error={!!errors.dueTime}
-                      helperText={errors.dueTime?.message}
+                      helperText={errors.dueTime?.message || "Leave empty to allow all available staff at the outlet to take this task"}
                       InputLabelProps={{ shrink: true }}
                     />
                   )}
@@ -312,13 +331,12 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
                 <Controller
                   name="staffId"
                   control={control}
-                  rules={{ required: 'Staff member is required' }}
                   render={({ field }) => (
                     <FormControl fullWidth error={!!errors.staffId}>
-                      <InputLabel>Assign to Staff</InputLabel>
+                      <InputLabel>Assign to Staff (Optional)</InputLabel>
                       <Select
                         {...field}
-                        label="Assign to Staff"
+                        label="Assign to Staff (Optional)"
                       >
                         {staffProfiles.map((staffProfile) => {
                           const availability = getStaffAvailabilityStatus(staffProfile);
@@ -369,37 +387,9 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
                 />
               </Grid>
 
-              {smartAssignment && availableStaff.length > 0 && (
-                <Grid item xs={12}>
-                  <Paper sx={{ p: 2, backgroundColor: '#f0f9ff', border: '1px solid #0ea5e9' }}>
-                    <Typography variant="subtitle2" gutterBottom sx={{ color: '#0369a1' }}>
-                      🎯 Available Staff for {selectedDueDate?.toLocaleDateString()} at {selectedDueTime}
-                    </Typography>
-                    <List dense>
-                      {availableStaff.map((staffProfile) => (
-                        <ListItem key={staffProfile.id} sx={{ py: 0.5 }}>
-                          <ListItemIcon>
-                            <CheckCircleIcon color="success" fontSize="small" />
-                          </ListItemIcon>
-                          <ListItemText
-                            primary={staffProfile.user?.name}
-                            secondary={`${staffProfile.position?.name} • ${staffProfile.employeeId}`}
-                          />
-                        </ListItem>
-                      ))}
-                    </List>
-                  </Paper>
-                </Grid>
-              )}
 
-              {smartAssignment && availableStaff.length === 0 && selectedDueDate && selectedOutletId && selectedDueTime && (
-                <Grid item xs={12}>
-                  <Alert severity="warning">
-                    ⚠️ No staff members are available at the selected time and outlet. 
-                    Consider adjusting the time or outlet, or disable smart assignment.
-                  </Alert>
-                </Grid>
-              )}
+
+
 
               <Grid item xs={12}>
                 <Controller

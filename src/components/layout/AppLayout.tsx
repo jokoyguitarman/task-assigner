@@ -3,7 +3,6 @@ import {
   AppBar,
   Toolbar,
   Typography,
-  Button,
   Box,
   Drawer,
   List,
@@ -13,7 +12,6 @@ import {
   useTheme,
   useMediaQuery,
   Avatar,
-  Divider,
   Chip,
   IconButton,
   Fade,
@@ -23,16 +21,15 @@ import {
   Dashboard,
   Assignment,
   People,
-  Schedule,
   Logout,
   Menu as MenuIcon,
   AdminPanelSettings,
   Person,
-  ChevronLeft,
   Business,
   GroupAdd,
   CalendarMonth,
   Assessment,
+  Schedule,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -64,11 +61,22 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       icon: <Dashboard />,
       path: '/dashboard',
     },
-    {
-      text: 'Tasks',
-      icon: <Assignment />,
-      path: '/tasks',
-    },
+    // Only show Tasks menu for admin users (staff and outlet users see tasks on dashboard)
+    ...(user?.role === 'admin' ? [
+      {
+        text: 'Tasks',
+        icon: <Assignment />,
+        path: '/tasks',
+      },
+    ] : []),
+    // Show Schedules menu for staff and outlet users
+    ...(user?.role === 'staff' || user?.role === 'outlet' ? [
+      {
+        text: 'Team Schedules',
+        icon: <Schedule />,
+        path: '/schedules',
+      },
+    ] : []),
     ...(user?.role === 'admin' ? [
       {
         text: 'Staff Management',
@@ -86,7 +94,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         path: '/outlets',
       },
       {
-        text: 'Monthly Scheduler',
+        text: 'Weekly Scheduler',
         icon: <CalendarMonth />,
         path: '/scheduler',
       },
@@ -152,9 +160,17 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
               {user?.name}
             </Typography>
             <Chip
-              label={user?.role === 'admin' ? 'Administrator' : 'Staff Member'}
+              label={
+                user?.role === 'admin' ? 'Administrator' : 
+                user?.role === 'outlet' ? 'Outlet Manager' : 
+                'Staff Member'
+              }
               size="small"
-              color={user?.role === 'admin' ? 'primary' : 'secondary'}
+              color={
+                user?.role === 'admin' ? 'primary' : 
+                user?.role === 'outlet' ? 'info' : 
+                'secondary'
+              }
               variant="outlined"
               sx={{ mt: 0.5, fontSize: '0.75rem' }}
             />

@@ -32,7 +32,7 @@ import {
   Phone as PhoneIcon,
   Email as EmailIcon,
 } from '@mui/icons-material';
-import { outletsAPI } from '../../services/api';
+import { outletsAPI } from '../../services/supabaseService';
 import { Outlet, OutletFormData } from '../../types';
 
 const OutletManagement: React.FC = () => {
@@ -45,6 +45,8 @@ const OutletManagement: React.FC = () => {
     address: '',
     phone: '',
     email: '',
+    username: '',
+    password: '',
   });
   const [error, setError] = useState<string | null>(null);
 
@@ -72,6 +74,8 @@ const OutletManagement: React.FC = () => {
         address: outlet.address || '',
         phone: outlet.phone || '',
         email: outlet.email || '',
+        username: outlet.username || '',
+        password: outlet.password || '',
       });
     } else {
       setEditingOutlet(null);
@@ -94,6 +98,8 @@ const OutletManagement: React.FC = () => {
       address: '',
       phone: '',
       email: '',
+      username: '',
+      password: '',
     });
     setError(null);
   };
@@ -339,6 +345,9 @@ const OutletManagement: React.FC = () => {
                 variant="outlined"
               />
             </Grid>
+            
+            {/* Login Credentials Section */}
+
           </Grid>
           
           {error && (

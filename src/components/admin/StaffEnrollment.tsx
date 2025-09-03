@@ -41,7 +41,7 @@ import {
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
-import { staffProfilesAPI, staffPositionsAPI, outletsAPI } from '../../services/api';
+import { staffProfilesAPI, staffPositionsAPI, outletsAPI, usersAPI } from '../../services/supabaseService';
 import { StaffProfile, StaffPosition, Outlet, StaffEnrollmentFormData } from '../../types';
 
 const StaffEnrollment: React.FC = () => {
@@ -61,6 +61,8 @@ const StaffEnrollment: React.FC = () => {
     customPositionDescription: '',
     employeeId: '',
     hireDate: new Date(),
+    username: '',
+    password: '',
   });
   const [error, setError] = useState<string | null>(null);
 
@@ -98,6 +100,8 @@ const StaffEnrollment: React.FC = () => {
         customPositionDescription: '',
         employeeId: staff.employeeId,
         hireDate: staff.hireDate,
+        username: staff.username || '',
+        password: staff.password || '',
       });
     } else {
       setEditingStaff(null);
@@ -110,6 +114,8 @@ const StaffEnrollment: React.FC = () => {
         customPositionDescription: '',
         employeeId: '',
         hireDate: new Date(),
+        username: '',
+        password: '',
       });
     }
     setShowCustomPosition(false);
@@ -130,6 +136,8 @@ const StaffEnrollment: React.FC = () => {
       customPositionDescription: '',
       employeeId: '',
       hireDate: new Date(),
+      username: '',
+      password: '',
     });
     setError(null);
   };
@@ -143,10 +151,7 @@ const StaffEnrollment: React.FC = () => {
         return;
       }
 
-      if (!formData.email.trim()) {
-        setError('Email is required');
-        return;
-      }
+
 
       if (!formData.positionId) {
         setError('Position is required');
@@ -169,14 +174,27 @@ const StaffEnrollment: React.FC = () => {
           hireDate: formData.hireDate,
         });
       } else {
-        // Create new staff
-        await staffProfilesAPI.create({
-          userId: Date.now().toString(), // Mock user ID
-          positionId: formData.positionId,
-          employeeId,
-          hireDate: formData.hireDate,
-          isActive: true,
-        });
+        // Create new staff - first create user, then staff profile
+        try {
+          // Create user first
+          const newUser = await usersAPI.create({
+            email: formData.email || `${employeeId}@company.com`, // Use employee ID if no email
+            name: formData.name,
+            role: 'staff',
+          });
+
+          // Then create staff profile
+          await staffProfilesAPI.create({
+            userId: newUser.id,
+            positionId: formData.positionId,
+            employeeId,
+            hireDate: formData.hireDate,
+            isActive: true,
+          });
+        } catch (error) {
+          console.error('Error creating staff member:', error);
+          throw error;
+        }
       }
 
       await loadData();
@@ -397,11 +415,10 @@ const StaffEnrollment: React.FC = () => {
               <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
-                  label="Email"
+                  label="Email (Optional)"
                   type="email"
                   value={formData.email}
                   onChange={handleInputChange('email')}
-                  required
                   variant="outlined"
                 />
               </Grid>
@@ -478,6 +495,9 @@ const StaffEnrollment: React.FC = () => {
                   </Grid>
                 </>
               )}
+
+              {/* Login Credentials Section */}
+  
             </Grid>
             
             {error && (

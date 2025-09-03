@@ -27,7 +27,7 @@ import {
   Assignment,
 } from '@mui/icons-material';
 import { Task } from '../../types';
-import { tasksAPI } from '../../services/api';
+import { tasksAPI } from '../../services/supabaseService';
 import TaskForm from './TaskForm';
 
 const TaskList: React.FC = () => {

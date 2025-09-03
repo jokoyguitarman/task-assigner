@@ -28,20 +28,20 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  Divider,
+  Autocomplete,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
   ArrowForward as ArrowForwardIcon,
-  Edit as EditIcon,
-  Add as AddIcon,
   CalendarToday as CalendarIcon,
   Schedule as ScheduleIcon,
-  Download as DownloadIcon,
   PictureAsPdf as PdfIcon,
   Image as JpegIcon,
+  ViewWeek as WeekIcon,
+  CalendarViewMonth as MonthIcon,
 } from '@mui/icons-material';
-import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { 
@@ -50,9 +50,9 @@ import {
   staffProfilesAPI, 
   outletsAPI 
 } from '../../services/supabaseService';
+import { useAuth } from '../../contexts/AuthContext';
 import { 
   MonthlySchedule, 
-  DailySchedule, 
   StaffProfile, 
   Outlet,
   DailyScheduleFormData 
@@ -60,6 +60,8 @@ import {
 import { exportService, ScheduleExportData } from '../../services/exportService';
 
 const MonthlyScheduler: React.FC = () => {
+  console.log('🚀 MonthlyScheduler component mounting...');
+  const { user } = useAuth();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [staffProfiles, setStaffProfiles] = useState<StaffProfile[]>([]);
   const [outlets, setOutlets] = useState<Outlet[]>([]);
@@ -77,32 +79,182 @@ const MonthlyScheduler: React.FC = () => {
     dayOffType: '',
     notes: '',
   });
+  const [applyToEntireWeek, setApplyToEntireWeek] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'weekly' | 'monthly'>(() => {
+    // Try to get preference from localStorage with fallback
+    try {
+      const saved = localStorage.getItem('scheduler-view-preference');
+      console.log('📚 Retrieved saved view preference:', saved);
+      return (saved as 'weekly' | 'monthly') || 'weekly';
+    } catch (error) {
+      console.warn('Failed to read localStorage preference:', error);
+      return 'weekly';
+    }
+  });
+  const [isExporting, setIsExporting] = useState(false);
+  
+  // Persist view preference when it changes
+  useEffect(() => {
+    try {
+      console.log('💾 Saving view preference:', viewMode);
+      localStorage.setItem('scheduler-view-preference', viewMode);
+    } catch (error) {
+      console.warn('Failed to save localStorage preference:', error);
+    }
+  }, [viewMode]);
+  
+  // Also persist on page unload as a backup
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      try {
+        localStorage.setItem('scheduler-view-preference', viewMode);
+      } catch (error) {
+        console.warn('Failed to save preference on unload:', error);
+      }
+    };
+    
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [viewMode]);
 
+  // Force re-check localStorage on component mount (handles refresh case)
+  useEffect(() => {
+    const recheckPreference = () => {
+      try {
+        const saved = localStorage.getItem('scheduler-view-preference');
+        console.log('🔍 Re-checking localStorage preference on mount:', saved);
+        if (saved && saved !== viewMode) {
+          console.log('📝 Updating view mode from localStorage:', saved);
+          setViewMode(saved as 'weekly' | 'monthly');
+        }
+      } catch (error) {
+        console.warn('Failed to re-check localStorage preference:', error);
+      }
+    };
+
+    // Check immediately and after a short delay to handle timing issues
+    recheckPreference();
+    const timeoutId = setTimeout(recheckPreference, 100);
+    
+    return () => clearTimeout(timeoutId);
+  }, []); // Only run on mount
+
+  // Get the start of the current week (Sunday)
+  const getStartOfWeek = (date: Date) => {
+    const start = new Date(date);
+    const day = start.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    const diff = start.getDate() - day;
+    const weekStart = new Date(start.setDate(diff));
+    console.log(`🗓️ getStartOfWeek: input=${date.toDateString()}, day=${day}, weekStart=${weekStart.toDateString()}`);
+    return weekStart;
+  };
+
+  const currentWeekStart = getStartOfWeek(currentDate);
   const currentMonth = currentDate.getMonth() + 1;
   const currentYear = currentDate.getFullYear();
 
   useEffect(() => {
     loadData();
-  }, [currentMonth, currentYear]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentMonth, currentYear, viewMode, currentWeekStart.toDateString()]);
+
+  // Debug component state on mount and updates
+  useEffect(() => {
+    console.log('🔄 MonthlyScheduler state update:', {
+      viewMode,
+      currentDate: currentDate.toDateString(),
+      currentWeekStart: currentWeekStart.toDateString(),
+      hasStaff: staffProfiles.length > 0,
+      hasSchedules: monthlySchedules.length > 0
+    });
+  }, [viewMode, currentDate, currentWeekStart, staffProfiles.length, monthlySchedules.length]);
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const [staffData, outletsData, schedulesData] = await Promise.all([
+      
+      // Get all months/years that need to be loaded for the current view
+      let monthsToLoad: Array<{month: number, year: number}> = [];
+      
+      if (viewMode === 'weekly') {
+        // For weekly view, check if the week spans multiple months
+        const weekDays = getWeekDays(currentWeekStart);
+        const uniqueMonths = new Set();
+        weekDays.forEach(date => {
+          const monthYear = `${date.getMonth() + 1}-${date.getFullYear()}`;
+          uniqueMonths.add(monthYear);
+        });
+        
+        monthsToLoad = Array.from(uniqueMonths).map(monthYear => {
+          const [month, year] = (monthYear as string).split('-');
+          return { month: parseInt(month), year: parseInt(year) };
+        });
+      } else {
+        // For monthly view, check if we need to load adjacent months for the calendar grid
+        const monthDays = getMonthDays(currentDate);
+        const uniqueMonths = new Set();
+        monthDays.forEach(date => {
+          const monthYear = `${date.getMonth() + 1}-${date.getFullYear()}`;
+          uniqueMonths.add(monthYear);
+        });
+        
+        monthsToLoad = Array.from(uniqueMonths).map(monthYear => {
+          const [month, year] = (monthYear as string).split('-');
+          return { month: parseInt(month), year: parseInt(year) };
+        });
+      }
+      
+      console.log(`🔄 Loading data for months:`, monthsToLoad);
+      
+      // Load staff and outlets once, then load all required monthly schedules
+      const [staffData, outletsData] = await Promise.all([
         staffProfilesAPI.getAll(),
         outletsAPI.getAll(),
-        monthlySchedulesAPI.getByMonth(currentMonth, currentYear),
       ]);
+      
+      // Load schedules for all required months
+      const allSchedulesData = await Promise.all(
+        monthsToLoad.map(({month, year}) => monthlySchedulesAPI.getByMonth(month, year))
+      );
+      
+      // Flatten all schedule data
+      const schedulesData = allSchedulesData.flat();
+      
+      console.log(`📊 Loaded ${staffData.length} staff, ${outletsData.length} outlets, ${schedulesData.length} monthly schedules from ${monthsToLoad.length} months`);
+      console.log('📅 Monthly schedules:', schedulesData.map(ms => ({
+        staffId: ms.staffId,
+        month: ms.month,
+        year: ms.year,
+        dailySchedules: ms.dailySchedules?.length || 0
+      })));
+      
       setStaffProfiles(staffData);
       setOutlets(outletsData);
       setMonthlySchedules(schedulesData);
     } catch (err) {
+      console.error('Error loading data:', err);
       setError('Failed to load schedule data');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handlePreviousWeek = () => {
+    setCurrentDate(prev => {
+      const newDate = new Date(prev);
+      newDate.setDate(newDate.getDate() - 7);
+      return newDate;
+    });
+  };
+
+  const handleNextWeek = () => {
+    setCurrentDate(prev => {
+      const newDate = new Date(prev);
+      newDate.setDate(newDate.getDate() + 7);
+      return newDate;
+    });
   };
 
   const handlePreviousMonth = () => {
@@ -121,9 +273,30 @@ const MonthlyScheduler: React.FC = () => {
     });
   };
 
+  const formatMonthRange = (date: Date) => {
+    return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  };
+
   const handleOpenDialog = (staff: StaffProfile, date: Date) => {
     setSelectedStaff(staff);
     setSelectedDate(date);
+    
+    // Check if there's an existing schedule for this staff and date
+    const existingSchedule = getStaffScheduleForDate(staff.id, date);
+    
+    if (existingSchedule) {
+      // Load existing schedule data for editing (convert times to 12-hour format for display)
+      setFormData({
+        scheduleDate: date,
+        outletId: existingSchedule.outletId || '',
+        timeIn: displayTime12Hour(existingSchedule.timeIn || ''),
+        timeOut: displayTime12Hour(existingSchedule.timeOut || ''),
+        isDayOff: existingSchedule.isDayOff || false,
+        dayOffType: existingSchedule.dayOffType || '',
+        notes: existingSchedule.notes || '',
+      });
+    } else {
+      // No existing schedule, start with empty form
     setFormData({
       scheduleDate: date,
       outletId: '',
@@ -133,6 +306,8 @@ const MonthlyScheduler: React.FC = () => {
       dayOffType: '',
       notes: '',
     });
+    }
+    
     setError(null);
     setOpenDialog(true);
   };
@@ -168,33 +343,154 @@ const MonthlyScheduler: React.FC = () => {
       }
 
       // Find or create monthly schedule for the staff
+      console.log('Selected staff:', selectedStaff);
+      console.log('Looking for existing schedule with staffId:', selectedStaff!.id);
       let monthlySchedule = monthlySchedules.find(s => s.staffId === selectedStaff!.id);
       
       if (!monthlySchedule) {
+        if (!user?.id) {
+          setError('User not authenticated');
+          return;
+        }
+        
+        console.log('Creating new monthly schedule with data:', {
+          staffId: selectedStaff!.id,
+          month: currentMonth,
+          year: currentYear,
+          createdBy: user.id,
+        });
+        
         monthlySchedule = await monthlySchedulesAPI.create({
           staffId: selectedStaff!.id,
           month: currentMonth,
           year: currentYear,
-          createdBy: '1', // Mock admin user ID
+          createdBy: user.id,
         });
       }
 
-      // Create daily schedule
-      await dailySchedulesAPI.create({
+      // Check if we're editing an existing schedule
+      const existingSchedule = getStaffScheduleForDate(selectedStaff!.id, formData.scheduleDate);
+      
+      // Prepare daily schedule data
+      const dailyScheduleData: any = {
         monthlyScheduleId: monthlySchedule.id,
         scheduleDate: formData.scheduleDate,
-        outletId: formData.outletId,
-        timeIn: formData.timeIn,
-        timeOut: formData.timeOut,
         isDayOff: formData.isDayOff,
-        dayOffType: formData.dayOffType as 'vacation' | 'sick' | 'personal' | 'other' | undefined,
         notes: formData.notes,
-      });
+      };
 
+      if (formData.isDayOff) {
+        // For day off, include dayOffType but no outlet or times
+        if (formData.dayOffType) {
+          dailyScheduleData.dayOffType = formData.dayOffType as 'vacation' | 'sick' | 'personal' | 'other';
+        }
+      } else {
+        // For work day, include outlet and times but no dayOffType
+        dailyScheduleData.outletId = formData.outletId;
+        dailyScheduleData.timeIn = formData.timeIn;
+        dailyScheduleData.timeOut = formData.timeOut;
+      }
+
+      if (existingSchedule) {
+        // Update existing schedule
+        await dailySchedulesAPI.update(existingSchedule.id, dailyScheduleData);
+      } else {
+        // Create new schedule
+        await dailySchedulesAPI.create(dailyScheduleData);
+      }
+
+      // Set success message for single schedule save
+      let successMessage = existingSchedule ? 'Schedule updated successfully!' : 'Schedule created successfully!';
+
+      // If "Apply to Entire Week" is checked, create schedules for all days of the week
+      if (applyToEntireWeek && !formData.isDayOff) {
+        console.log('🔄 Applying schedule to entire week...');
+        // Get the week that contains the selected date, not the current display week
+        const selectedDateWeekStart = getStartOfWeek(formData.scheduleDate);
+        const weekDays = getWeekDays(selectedDateWeekStart);
+        let appliedCount = 0;
+        
+        console.log('📅 Week days:', weekDays.map(d => d.toDateString()));
+        console.log('🎯 Target date:', formData.scheduleDate.toDateString());
+        console.log('🗓️ Selected date week start:', selectedDateWeekStart.toDateString());
+        
+        // Reload data to get the most current schedules before checking for existing ones
+        console.log('🔄 Reloading data to get current schedules...');
+        await loadData();
+        
+        for (const weekDay of weekDays) {
+          console.log(`🔄 Processing ${weekDay.toDateString()} (day ${weekDay.getDay()})`);
+          
+          // Skip the day we just created and skip existing schedules
+          if (weekDay.toDateString() !== formData.scheduleDate.toDateString()) {
+            console.log(`✅ Not the original date, checking for existing schedule...`);
+            const existingSchedule = getStaffScheduleForDate(selectedStaff!.id, weekDay);
+            console.log(`📋 Checking ${weekDay.toDateString()}: existing=${!!existingSchedule}`);
+            
+            if (!existingSchedule) {
+              console.log(`🎯 Creating schedule for ${weekDay.toDateString()}`);
+            } else {
+              console.log(`⏭️ Skipping ${weekDay.toDateString()} - already has schedule`);
+            }
+            
+            if (!existingSchedule) {
+              // Find or create monthly schedule for this month/year
+              let monthlyScheduleForWeekDay = monthlySchedules.find(s => 
+                s.staffId === selectedStaff!.id && 
+                s.month === weekDay.getMonth() + 1 && 
+                s.year === weekDay.getFullYear()
+              );
+              
+              if (!monthlyScheduleForWeekDay) {
+                console.log(`📅 Creating monthly schedule for ${weekDay.getMonth() + 1}/${weekDay.getFullYear()}`);
+                monthlyScheduleForWeekDay = await monthlySchedulesAPI.create({
+                  staffId: selectedStaff!.id,
+                  month: weekDay.getMonth() + 1,
+                  year: weekDay.getFullYear(),
+                  createdBy: user!.id,
+                });
+              }
+              
+              // Create the same schedule for this day
+              const weeklyScheduleData: any = {
+                monthlyScheduleId: monthlyScheduleForWeekDay.id,
+                scheduleDate: weekDay,
+                isDayOff: false,
+                outletId: dailyScheduleData.outletId,
+                timeIn: dailyScheduleData.timeIn,
+                timeOut: dailyScheduleData.timeOut,
+                notes: `Auto-applied from ${formData.scheduleDate.toLocaleDateString()}`,
+              };
+              
+              try {
+                console.log(`✅ Creating schedule for ${weekDay.toDateString()}`);
+                await dailySchedulesAPI.create(weeklyScheduleData);
+                appliedCount++;
+              } catch (err) {
+                console.log(`❌ Could not create schedule for ${weekDay.toLocaleDateString()}:`, err);
+              }
+            }
+          }
+        }
+        
+        console.log(`🎉 Applied to ${appliedCount} additional days`);
+        if (appliedCount > 0) {
+          successMessage = `${successMessage.replace('!', '')} and applied to ${appliedCount} additional days this week!`;
+        }
+      }
+
+      setSuccess(successMessage);
+      setApplyToEntireWeek(false); // Reset the checkbox after successful save
+      
+      // Only reload data if we didn't already do it in the Apply to Entire Week logic
+      if (!applyToEntireWeek || formData.isDayOff) {
       await loadData();
+      }
+      
       handleCloseDialog();
     } catch (err) {
-      setError('Failed to save schedule');
+      console.error('Schedule save error:', err);
+      setError(`Failed to save schedule: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   };
 
@@ -230,16 +526,27 @@ const MonthlyScheduler: React.FC = () => {
       if (format === 'pdf') {
         await exportService.exportScheduleToPDF(scheduleData, {
           format: 'pdf',
-          filename: `schedule_${currentDate.toLocaleDateString('en-US', { month: 'long' })}_${currentDate.getFullYear()}.pdf`,
+          filename: `schedule_${viewMode}_${currentDate.toLocaleDateString('en-US', { month: 'long' })}_${currentDate.getFullYear()}.pdf`,
         });
       } else {
         // For JPEG, we'll export the calendar view
         const calendarElement = document.getElementById('schedule-calendar');
         if (calendarElement) {
+          // Enable export mode to remove scroll restrictions
+          setIsExporting(true);
+          
+          // Wait for the UI to update and show all content
+          await new Promise(resolve => setTimeout(resolve, 200));
+          
+          try {
           await exportService.exportToJPEG(calendarElement, {
             format: 'jpeg',
-            filename: `schedule_${currentDate.toLocaleDateString('en-US', { month: 'long' })}_${currentDate.getFullYear()}.jpg`,
+              filename: `schedule_${viewMode}_${currentDate.toLocaleDateString('en-US', { month: 'long' })}_${currentDate.getFullYear()}.jpg`,
           });
+          } finally {
+            // Restore normal view mode
+            setIsExporting(false);
+          }
         } else {
           setError('Calendar view not found for export');
           return;
@@ -263,27 +570,363 @@ const MonthlyScheduler: React.FC = () => {
   };
 
   const getStaffScheduleForDate = (staffId: string, date: Date) => {
-    const monthlySchedule = monthlySchedules.find(s => s.staffId === staffId);
-    if (!monthlySchedule) return null;
+    // Find the monthly schedule for the specific month and year
+    const monthlySchedule = monthlySchedules.find(s => 
+      s.staffId === staffId && 
+      s.month === date.getMonth() + 1 && 
+      s.year === date.getFullYear()
+    );
     
-    return monthlySchedule.dailySchedules?.find(ds => 
+    if (!monthlySchedule) {
+      console.log(`📅 No monthly schedule found for staff ${staffId} in ${date.getMonth() + 1}/${date.getFullYear()}`);
+      return null;
+    }
+    
+    const dailySchedule = monthlySchedule.dailySchedules?.find(ds => 
       new Date(ds.scheduleDate).toDateString() === date.toDateString()
     );
+    
+    console.log(`🔍 getStaffScheduleForDate(${staffId}, ${date.toDateString()}): found=${!!dailySchedule}`);
+    return dailySchedule;
   };
 
-  const getDaysInMonth = (date: Date) => {
-    return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  const getWeekDays = (startDate: Date) => {
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      const day = new Date(startDate);
+      day.setDate(startDate.getDate() + i);
+      days.push(day);
+    }
+    console.log(`📅 getWeekDays from ${startDate.toDateString()}:`, days.map(d => `${d.toDateString()} (${d.getDay()})`));
+    return days;
+  };
+
+  const getMonthDays = (date: Date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const startDate = new Date(firstDay);
+    const endDate = new Date(lastDay);
+    
+    // Start from the Sunday of the week containing the first day
+    const firstSunday = new Date(startDate);
+    firstSunday.setDate(startDate.getDate() - startDate.getDay());
+    
+    // End on the Saturday of the week containing the last day
+    const lastSaturday = new Date(endDate);
+    lastSaturday.setDate(endDate.getDate() + (6 - endDate.getDay()));
+    
+    const days = [];
+    for (let d = new Date(firstSunday); d <= lastSaturday; d.setDate(d.getDate() + 1)) {
+      days.push(new Date(d));
+    }
+    
+    return days;
+  };
+
+  // const getCurrentViewDays = () => {
+  //   return viewMode === 'weekly' ? getWeekDays(currentWeekStart) : getMonthDays(currentDate);
+  // };
+
+  const formatWeekRange = (startDate: Date) => {
+    const endDate = new Date(startDate);
+    endDate.setDate(startDate.getDate() + 6);
+    
+    const startMonth = startDate.toLocaleDateString('en-US', { month: 'short' });
+    const endMonth = endDate.toLocaleDateString('en-US', { month: 'short' });
+    const year = startDate.getFullYear();
+    
+    if (startMonth === endMonth) {
+      return `${startMonth} ${startDate.getDate()}-${endDate.getDate()}, ${year}`;
+    } else {
+      return `${startMonth} ${startDate.getDate()} - ${endMonth} ${endDate.getDate()}, ${year}`;
+    }
   };
 
   const generateTimeOptions = () => {
     const options = [];
     for (let hour = 0; hour < 24; hour++) {
       for (let minute = 0; minute < 60; minute += 30) {
-        const timeString = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+        const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+        const ampm = hour < 12 ? 'AM' : 'PM';
+        const minuteStr = minute === 0 ? '00' : minute.toString();
+        const timeString = `${hour12}:${minuteStr} ${ampm}`;
         options.push(timeString);
       }
     }
     return options;
+  };
+
+  // Convert 24-hour format to 12-hour format with AM/PM
+  const formatTo12Hour = (hour24: number, minute: number): string => {
+    const hour12 = hour24 === 0 ? 12 : hour24 > 12 ? hour24 - 12 : hour24;
+    const ampm = hour24 < 12 ? 'AM' : 'PM';
+    const minuteStr = minute === 0 ? '00' : minute.toString().padStart(2, '0');
+    return `${hour12}:${minuteStr} ${ampm}`;
+  };
+
+  // Convert time string to 12-hour format for display
+  const displayTime12Hour = (timeString: string | undefined): string => {
+    if (!timeString) return '';
+    
+    // If already in 12-hour format, return as is
+    if (timeString.includes('AM') || timeString.includes('PM')) {
+      return timeString;
+    }
+    
+    // Convert from HH:MM format to 12-hour
+    const timeParts = timeString.split(':');
+    if (timeParts.length === 2) {
+      const hour = parseInt(timeParts[0]);
+      const minute = parseInt(timeParts[1]);
+      if (!isNaN(hour) && !isNaN(minute)) {
+        return formatTo12Hour(hour, minute);
+      }
+    }
+    
+    return timeString;
+  };
+
+  // Get outlet color for visual differentiation
+  const getOutletColor = (outletId: string): string => {
+    const colors = [
+      '#1976d2', // Blue
+      '#388e3c', // Green  
+      '#f57c00', // Orange
+      '#7b1fa2', // Purple
+      '#c62828', // Red
+      '#00796b', // Teal
+      '#5d4037', // Brown
+      '#455a64', // Blue Grey
+      '#e91e63', // Pink
+      '#ff5722', // Deep Orange
+      '#607d8b', // Blue Grey
+      '#795548'  // Brown
+    ];
+    
+    const index = outlets.findIndex(outlet => outlet.id === outletId);
+    const color = index >= 0 ? colors[index % colors.length] : '#9e9e9e'; // Default grey
+    
+    // Debug logging
+    if (outletId) {
+      const outlet = outlets.find(o => o.id === outletId);
+      console.log(`🎨 Color for outlet ${outlet?.name || outletId}: ${color} (index: ${index})`);
+    } else {
+      console.log(`🎨 No outletId provided - using default grey color`);
+    }
+    
+    return color;
+  };
+
+  // Get outlet name by ID
+  const getOutletName = (outletId: string): string => {
+    const outlet = outlets.find(o => o.id === outletId);
+    return outlet ? outlet.name : 'Unknown Outlet';
+  };
+
+  // Parse various time formats and convert to 24-hour format for storage
+  const parseTimeInput = (input: string): string => {
+    if (!input) return '';
+    
+    // Remove extra spaces and convert to lowercase
+    const cleaned = input.replace(/\s+/g, ' ').toLowerCase().trim();
+    
+    // Handle various formats
+    let timeRegex;
+    let match;
+    
+    // Format: 9am, 10pm, 9:30am, 10:30pm (12-hour format with AM/PM)
+    timeRegex = /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/;
+    match = cleaned.match(timeRegex);
+    if (match) {
+      let hour = parseInt(match[1]);
+      const minute = match[2] ? parseInt(match[2]) : 0;
+      const period = match[3];
+      
+      // Validate hour for 12-hour format
+      if (hour < 1 || hour > 12) return input;
+      if (minute < 0 || minute > 59) return input;
+      
+      // Convert to 24-hour format for storage
+      if (period === 'pm' && hour !== 12) hour += 12;
+      if (period === 'am' && hour === 12) hour = 0;
+      
+      return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+    }
+    
+    // Format: 9, 10, 13, 14 (assume 24-hour format)
+    timeRegex = /^(\d{1,2})$/;
+    match = cleaned.match(timeRegex);
+    if (match) {
+      const hour = parseInt(match[1]);
+      if (hour >= 0 && hour <= 23) {
+        return `${hour.toString().padStart(2, '0')}:00`;
+      }
+    }
+    
+    // Format: 9:30, 10:45, 13:30, 23:45 (24-hour format)
+    timeRegex = /^(\d{1,2}):(\d{2})$/;
+    match = cleaned.match(timeRegex);
+    if (match) {
+      const hour = parseInt(match[1]);
+      const minute = parseInt(match[2]);
+      if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+        return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+      }
+    }
+    
+    // Format: 930, 1045, 1330 (without colon)
+    timeRegex = /^(\d{3,4})$/;
+    match = cleaned.match(timeRegex);
+    if (match) {
+      const timeStr = match[1];
+      let hour, minute;
+      
+      if (timeStr.length === 3) {
+        hour = parseInt(timeStr.substring(0, 1));
+        minute = parseInt(timeStr.substring(1, 3));
+      } else {
+        hour = parseInt(timeStr.substring(0, 2));
+        minute = parseInt(timeStr.substring(2, 4));
+      }
+      
+      if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+        return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+      }
+    }
+    
+    // If no pattern matches, return original input
+    return input;
+  };
+
+  const copyFromPreviousWeek = async () => {
+    try {
+      setError(null);
+      const previousWeek = new Date(currentWeekStart);
+      previousWeek.setDate(previousWeek.getDate() - 7);
+      
+      const previousWeekDays = getWeekDays(previousWeek);
+      let copiedCount = 0;
+      
+      for (const staff of staffProfiles) {
+        for (const previousDate of previousWeekDays) {
+          const previousSchedule = getStaffScheduleForDate(staff.id, previousDate);
+          if (previousSchedule) {
+            // Calculate corresponding day in current week
+            const dayOffset = previousWeekDays.indexOf(previousDate);
+            const currentWeekDays = getWeekDays(currentWeekStart);
+            const newDate = currentWeekDays[dayOffset];
+            
+            // Check if schedule already exists for this day
+            const existingSchedule = getStaffScheduleForDate(staff.id, newDate);
+            if (!existingSchedule) {
+              // Find or create monthly schedule
+              let monthlySchedule = monthlySchedules.find(s => s.staffId === staff.id);
+              if (!monthlySchedule) {
+                monthlySchedule = await monthlySchedulesAPI.create({
+                  staffId: staff.id,
+                  month: newDate.getMonth() + 1,
+                  year: newDate.getFullYear(),
+                  createdBy: user!.id,
+                });
+              }
+              
+              // Create the copied schedule
+              const scheduleData: any = {
+                monthlyScheduleId: monthlySchedule.id,
+                scheduleDate: newDate,
+                isDayOff: previousSchedule.isDayOff,
+                notes: previousSchedule.notes,
+              };
+              
+              if (previousSchedule.isDayOff && previousSchedule.dayOffType) {
+                scheduleData.dayOffType = previousSchedule.dayOffType;
+              } else if (!previousSchedule.isDayOff) {
+                scheduleData.outletId = previousSchedule.outletId;
+                scheduleData.timeIn = previousSchedule.timeIn;
+                scheduleData.timeOut = previousSchedule.timeOut;
+              }
+              
+              await dailySchedulesAPI.create(scheduleData);
+              copiedCount++;
+            }
+          }
+        }
+      }
+      
+      await loadData();
+      setSuccess(`Copied ${copiedCount} schedules from previous week`);
+    } catch (err) {
+      console.error('Error copying from previous week:', err);
+      setError('Failed to copy schedules from previous week');
+    }
+  };
+
+  const shiftDayOffsForward = async () => {
+    try {
+      setError(null);
+      const previousWeek = new Date(currentWeekStart);
+      previousWeek.setDate(previousWeek.getDate() - 7);
+      
+      const previousWeekDays = getWeekDays(previousWeek);
+      const currentWeekDays = getWeekDays(currentWeekStart);
+      let shiftedCount = 0;
+      
+      for (const staff of staffProfiles) {
+        // Find day-offs from previous week
+        const previousDayOffs = [];
+        for (const previousDate of previousWeekDays) {
+          const previousSchedule = getStaffScheduleForDate(staff.id, previousDate);
+          if (previousSchedule?.isDayOff) {
+            const dayIndex = previousWeekDays.indexOf(previousDate);
+            previousDayOffs.push({ dayIndex, schedule: previousSchedule });
+          }
+        }
+        
+        // Shift each day-off forward by one day
+        for (const dayOff of previousDayOffs) {
+          const newDayIndex = (dayOff.dayIndex + 1) % 7; // Wrap around week
+          const newDate = currentWeekDays[newDayIndex];
+          
+          // Check if schedule already exists
+          const existingSchedule = getStaffScheduleForDate(staff.id, newDate);
+          if (!existingSchedule) {
+            // Find or create monthly schedule
+            let monthlySchedule = monthlySchedules.find(s => s.staffId === staff.id);
+            if (!monthlySchedule) {
+              monthlySchedule = await monthlySchedulesAPI.create({
+                staffId: staff.id,
+                month: newDate.getMonth() + 1,
+                year: newDate.getFullYear(),
+                createdBy: user!.id,
+              });
+            }
+            
+            // Create the shifted day-off
+            const scheduleData: any = {
+              monthlyScheduleId: monthlySchedule.id,
+              scheduleDate: newDate,
+              isDayOff: true,
+              notes: `Shifted from ${previousWeekDays[dayOff.dayIndex].toLocaleDateString()}`,
+            };
+            
+            if (dayOff.schedule.dayOffType) {
+              scheduleData.dayOffType = dayOff.schedule.dayOffType;
+            }
+            
+            await dailySchedulesAPI.create(scheduleData);
+            shiftedCount++;
+          }
+        }
+      }
+      
+      await loadData();
+      setSuccess(`Shifted ${shiftedCount} day-offs forward by one day`);
+    } catch (err) {
+      console.error('Error shifting day-offs:', err);
+      setError('Failed to shift day-offs forward');
+    }
   };
 
   if (loading) {
@@ -303,26 +946,110 @@ const MonthlyScheduler: React.FC = () => {
               <Box display="flex" justifyContent="space-between" alignItems="center">
                 <Box>
                   <Typography variant="h4" component="h1" gutterBottom>
-                    📅 Monthly Schedule Builder
+                    📅 {viewMode === 'weekly' ? 'Weekly' : 'Monthly'} Schedule Builder
                   </Typography>
                   <Typography variant="body1" sx={{ opacity: 0.9 }}>
-                    Plan your staff schedules for the month
+                    Plan your staff schedules for the {viewMode === 'weekly' ? 'week' : 'month'}
                   </Typography>
                 </Box>
                 <Box display="flex" alignItems="center" gap={2}>
-                  <IconButton onClick={handlePreviousMonth} sx={{ color: 'white' }}>
+                  {/* View Toggle */}
+                  <ToggleButtonGroup
+                    value={viewMode}
+                    exclusive
+                    onChange={(event, newMode) => {
+                      if (newMode !== null) {
+                        setViewMode(newMode);
+                      }
+                    }}
+                    size="small"
+                    sx={{
+                      '& .MuiToggleButton-root': {
+                        color: 'white',
+                        borderColor: 'rgba(255, 255, 255, 0.3)',
+                        '&.Mui-selected': {
+                          backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                          color: 'white',
+                          '&:hover': {
+                            backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                          },
+                        },
+                        '&:hover': {
+                          backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                        },
+                      },
+                    }}
+                  >
+                    <ToggleButton value="weekly" aria-label="weekly view">
+                      <WeekIcon sx={{ mr: 1 }} />
+                      Weekly
+                    </ToggleButton>
+                    <ToggleButton value="monthly" aria-label="monthly view">
+                      <MonthIcon sx={{ mr: 1 }} />
+                      Monthly
+                    </ToggleButton>
+                  </ToggleButtonGroup>
+                  
+                  {/* Navigation */}
+                  <IconButton onClick={viewMode === 'weekly' ? handlePreviousWeek : handlePreviousMonth} sx={{ color: 'white' }}>
                     <ArrowBackIcon />
                   </IconButton>
-                  <Typography variant="h6" sx={{ minWidth: 200, textAlign: 'center' }}>
-                    {currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                  <Typography variant="h6" sx={{ minWidth: 250, textAlign: 'center' }}>
+                    {viewMode === 'weekly' ? formatWeekRange(currentWeekStart) : formatMonthRange(currentDate)}
                   </Typography>
-                  <IconButton onClick={handleNextMonth} sx={{ color: 'white' }}>
+                  <IconButton onClick={viewMode === 'weekly' ? handleNextWeek : handleNextMonth} sx={{ color: 'white' }}>
                     <ArrowForwardIcon />
                   </IconButton>
                 </Box>
               </Box>
               
-              <Box display="flex" justifyContent="flex-end" gap={1} mt={2}>
+              <Box display="flex" justifyContent="space-between" alignItems="flex-end" gap={2} mt={2} flexWrap="wrap">
+                {/* Outlet Color Legend */}
+                <Box display="flex" gap={1} flexWrap="wrap" alignItems="center">
+                  <Typography variant="caption" sx={{ color: 'white', opacity: 0.9, fontWeight: 'bold' }}>
+                    Outlets:
+                  </Typography>
+                  {outlets.map((outlet, index) => (
+                    <Chip
+                      key={outlet.id}
+                      size="small"
+                      label={outlet.name}
+                      sx={{
+                        backgroundColor: getOutletColor(outlet.id),
+                        color: 'white',
+                        fontSize: '0.7rem',
+                        fontWeight: 'bold',
+                      }}
+                    />
+                  ))}
+                </Box>
+
+                {/* Action Buttons */}
+                <Box display="flex" gap={1} flexWrap="wrap">
+                  <Button
+                    variant="contained"
+                    startIcon={<CalendarIcon />}
+                    onClick={copyFromPreviousWeek}
+                    sx={{
+                      background: 'rgba(255, 255, 255, 0.2)',
+                      backdropFilter: 'blur(10px)',
+                      '&:hover': { background: 'rgba(255, 255, 255, 0.3)' },
+                    }}
+                  >
+                    Copy Previous Week
+                  </Button>
+                  <Button
+                    variant="contained"
+                    startIcon={<ArrowForwardIcon />}
+                    onClick={shiftDayOffsForward}
+                    sx={{
+                      background: 'rgba(255, 255, 255, 0.2)',
+                      backdropFilter: 'blur(10px)',
+                      '&:hover': { background: 'rgba(255, 255, 255, 0.3)' },
+                    }}
+                  >
+                    Shift Day-offs +1
+                  </Button>
                 <Button
                   variant="contained"
                   startIcon={<PdfIcon />}
@@ -347,6 +1074,7 @@ const MonthlyScheduler: React.FC = () => {
                 >
                   Export JPEG
                 </Button>
+                </Box>
               </Box>
             </CardContent>
           </Card>
@@ -382,22 +1110,58 @@ const MonthlyScheduler: React.FC = () => {
                   </Typography>
                 </Box>
               ) : (
-                <TableContainer component={Paper} id="schedule-calendar">
-                  <Table>
+                <TableContainer 
+                  component={Paper} 
+                  id="schedule-calendar"
+                  sx={{ 
+                    maxHeight: isExporting ? 'none' : '70vh',
+                    overflow: isExporting ? 'visible' : 'auto',
+                    '& .MuiTableHead-root': {
+                      position: isExporting ? 'static' : 'sticky',
+                      top: 0,
+                      zIndex: 1,
+                    }
+                  }}
+                >
+                  <Table stickyHeader={!isExporting}>
                     <TableHead>
-                      <TableRow sx={{ background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)' }}>
-                        <TableCell><strong>Staff Member</strong></TableCell>
-                        {Array.from({ length: getDaysInMonth(currentDate) }, (_, i) => (
-                          <TableCell key={i + 1} align="center">
-                            <Typography variant="caption" fontWeight="bold">
-                              {i + 1}
+                      <TableRow sx={{ 
+                        background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
+                        '& .MuiTableCell-root': {
+                          backgroundColor: 'transparent',
+                          backgroundImage: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
+                          backdropFilter: 'blur(10px)',
+                        }
+                      }}>
+                        <TableCell sx={{ minWidth: 150 }}><strong>Staff Member</strong></TableCell>
+                        {viewMode === 'weekly' ? (
+                          // Weekly view - show all 7 days in header
+                          getWeekDays(currentWeekStart).map((date, i) => (
+                            <TableCell key={i} align="center" sx={{ minWidth: 120 }}>
+                              <Typography variant="caption" fontWeight="bold" display="block">
+                                {date.toLocaleDateString('en-US', { weekday: 'short' })}
+                              </Typography>
+                              <Typography variant="body2" fontWeight="bold" sx={{ mt: 0.5 }}>
+                                {date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                             </Typography>
                           </TableCell>
-                        ))}
+                          ))
+                        ) : (
+                          // Monthly view - show days 1-7, 8-14, 15-21, 22-28, etc. in separate rows
+                          ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, i) => (
+                            <TableCell key={i} align="center" sx={{ minWidth: 80 }}>
+                              <Typography variant="caption" fontWeight="bold" display="block">
+                                {day}
+                              </Typography>
+                            </TableCell>
+                          ))
+                        )}
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {staffProfiles.map((staff, staffIndex) => (
+                      {viewMode === 'weekly' ? (
+                        // Weekly view - one row per staff member
+                        staffProfiles.map((staff, staffIndex) => (
                         <Slide key={staff.id} direction="up" in timeout={300 + staffIndex * 100}>
                           <TableRow hover>
                             <TableCell>
@@ -410,35 +1174,45 @@ const MonthlyScheduler: React.FC = () => {
                                 </Typography>
                               </Box>
                             </TableCell>
-                            {Array.from({ length: getDaysInMonth(currentDate) }, (_, dayIndex) => {
-                              const day = dayIndex + 1;
-                              const date = new Date(currentYear, currentMonth - 1, day);
+                              {getWeekDays(currentWeekStart).map((date, dayIndex) => {
                               const schedule = getStaffScheduleForDate(staff.id, date);
                               
+                              // Debug logging for schedule data
+                              if (schedule) {
+                                console.log(`📅 Schedule for ${staff.id} on ${date.toDateString()}:`, {
+                                  outletId: schedule.outletId,
+                                  outletName: schedule.outletId ? getOutletName(schedule.outletId) : 'No outlet',
+                                  isDayOff: schedule.isDayOff,
+                                  timeIn: schedule.timeIn,
+                                  timeOut: schedule.timeOut
+                                });
+                              }
+                              
                               return (
-                                <TableCell key={day} align="center">
+                                  <TableCell key={dayIndex} align="center">
+                                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
                                   <IconButton
                                     size="small"
                                     onClick={() => handleOpenDialog(staff, date)}
                                     sx={{
-                                      width: 40,
-                                      height: 40,
-                                      borderRadius: 1,
+                                          width: 50,
+                                          height: 50,
+                                          borderRadius: 2,
                                       backgroundColor: schedule?.isDayOff 
                                         ? 'error.light' 
-                                        : schedule 
-                                          ? 'success.light' 
+                                            : schedule?.outletId
+                                              ? getOutletColor(schedule.outletId)
                                           : 'grey.100',
                                       color: schedule?.isDayOff 
                                         ? 'error.contrastText' 
-                                        : schedule 
-                                          ? 'success.contrastText' 
+                                            : schedule?.outletId
+                                              ? 'white'
                                           : 'text.secondary',
                                       '&:hover': {
                                         backgroundColor: schedule?.isDayOff 
                                           ? 'error.main' 
-                                          : schedule 
-                                            ? 'success.main' 
+                                              : schedule?.outletId
+                                                ? `${getOutletColor(schedule.outletId)}dd` // Slightly darker on hover
                                             : 'grey.300',
                                       },
                                     }}
@@ -446,19 +1220,127 @@ const MonthlyScheduler: React.FC = () => {
                                     <ScheduleIcon fontSize="small" />
                                   </IconButton>
                                   {schedule && (
-                                    <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+                                        <Typography variant="caption" sx={{ fontSize: '0.7rem', textAlign: 'center' }}>
                                       {schedule.isDayOff 
-                                        ? 'OFF' 
-                                        : `${schedule.timeIn}-${schedule.timeOut}`
+                                            ? (
+                                              <Chip 
+                                                label="OFF" 
+                                                size="small" 
+                                                color="error" 
+                                                variant="outlined"
+                                                sx={{ fontSize: '0.6rem', height: 20 }}
+                                              />
+                                            ) : (
+                                              <Box>
+                                                <Typography variant="caption" display="block" fontWeight="bold">
+                                                  {displayTime12Hour(schedule.timeIn)}
+                                                </Typography>
+                                                <Typography variant="caption" display="block">
+                                                  {displayTime12Hour(schedule.timeOut)}
+                                                </Typography>
+                                                {schedule.outletId && (
+                                                  <Typography 
+                                                    variant="caption" 
+                                                    display="block" 
+                                                    sx={{ 
+                                                      fontSize: '0.6rem', 
+                                                      color: getOutletColor(schedule.outletId),
+                                                      fontWeight: 'bold',
+                                                      mt: 0.5,
+                                                      textAlign: 'center'
+                                                    }}
+                                                  >
+                                                    {getOutletName(schedule.outletId)}
+                                                  </Typography>
+                                                )}
+                                              </Box>
+                                            )
                                       }
                                     </Typography>
                                   )}
+                                    </Box>
                                 </TableCell>
                               );
                             })}
                           </TableRow>
                         </Slide>
-                      ))}
+                        ))
+                      ) : (
+                        // Monthly view - calendar grid for each staff member
+                        staffProfiles.map((staff, staffIndex) => {
+                          const monthDays = getMonthDays(currentDate);
+                          const weeks = [];
+                          for (let i = 0; i < monthDays.length; i += 7) {
+                            weeks.push(monthDays.slice(i, i + 7));
+                          }
+                          
+                          return weeks.map((week, weekIndex) => (
+                            <Slide key={`${staff.id}-${weekIndex}`} direction="up" in timeout={300 + (staffIndex * weeks.length + weekIndex) * 50}>
+                              <TableRow hover>
+                                <TableCell>
+                                  {weekIndex === 0 && (
+                                    <Box>
+                                      <Typography variant="subtitle2" fontWeight="bold">
+                                        {staff.user?.name}
+                                      </Typography>
+                                      <Typography variant="caption" color="text.secondary">
+                                        {staff.position?.name}
+                                      </Typography>
+                                    </Box>
+                                  )}
+                                </TableCell>
+                                {week.map((date, dayIndex) => {
+                                  const schedule = getStaffScheduleForDate(staff.id, date);
+                                  const isCurrentMonth = date.getMonth() === currentDate.getMonth();
+                                  
+                                  return (
+                                    <TableCell key={dayIndex} align="center" sx={{ 
+                                      opacity: isCurrentMonth ? 1 : 0.3,
+                                      backgroundColor: isCurrentMonth ? 'transparent' : 'grey.50'
+                                    }}>
+                                      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
+                                        <Typography variant="caption" fontWeight="bold" display="block">
+                                          {date.getDate()}
+                                        </Typography>
+                                        {isCurrentMonth && (
+                                          <IconButton
+                                            size="small"
+                                            onClick={() => handleOpenDialog(staff, date)}
+                                            sx={{
+                                              width: 35,
+                                              height: 35,
+                                              borderRadius: 1,
+                                              backgroundColor: schedule?.isDayOff 
+                                                ? 'error.light' 
+                                                : schedule?.outletId
+                                                  ? getOutletColor(schedule.outletId)
+                                                  : 'grey.100',
+                                              color: schedule?.isDayOff 
+                                                ? 'error.contrastText' 
+                                                : schedule?.outletId
+                                                  ? 'white'
+                                                  : 'text.secondary',
+                                              '&:hover': {
+                                                backgroundColor: schedule?.isDayOff 
+                                                  ? 'error.main' 
+                                                  : schedule?.outletId
+                                                    ? `${getOutletColor(schedule.outletId)}dd`
+                                                    : 'grey.300',
+                                              },
+                                            }}
+                                          >
+                                            <ScheduleIcon fontSize="small" />
+                                          </IconButton>
+                                        )}
+                                      </Box>
+                                    </TableCell>
+                                  );
+                                })}
+                              </TableRow>
+                            </Slide>
+                          ));
+                        })
+                      )}
                     </TableBody>
                   </Table>
                 </TableContainer>
@@ -470,7 +1352,7 @@ const MonthlyScheduler: React.FC = () => {
         {/* Schedule Entry Dialog */}
         <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
           <DialogTitle>
-            Schedule Entry - {selectedStaff?.user?.name}
+            {getStaffScheduleForDate(selectedStaff?.id || '', selectedDate || new Date()) ? 'Edit' : 'Create'} Schedule - {selectedStaff?.user?.name}
           </DialogTitle>
           <DialogContent>
             <Grid container spacing={2} sx={{ mt: 1 }}>
@@ -486,12 +1368,39 @@ const MonthlyScheduler: React.FC = () => {
                     <input
                       type="checkbox"
                       checked={formData.isDayOff}
-                      onChange={(e) => handleInputChange('isDayOff')(e.target.checked)}
+                      onChange={(e) => {
+                        handleInputChange('isDayOff')(e.target.checked);
+                        if (e.target.checked) {
+                          setApplyToEntireWeek(false); // Can't apply day-off to entire week
+                        }
+                      }}
                     />
                   }
                   label="Day Off"
                 />
               </Grid>
+
+              {!formData.isDayOff && (
+                <Grid item xs={12}>
+                  <FormControlLabel
+                    control={
+                      <input
+                        type="checkbox"
+                        checked={applyToEntireWeek}
+                        onChange={(e) => setApplyToEntireWeek(e.target.checked)}
+                      />
+                    }
+                    label="Apply this shift to entire week (skip days that already have schedules)"
+                    sx={{
+                      '& .MuiFormControlLabel-label': {
+                        fontSize: '0.9rem',
+                        color: 'primary.main',
+                        fontWeight: 500,
+                      }
+                    }}
+                  />
+                </Grid>
+              )}
 
               {!formData.isDayOff && (
                 <>
@@ -513,37 +1422,67 @@ const MonthlyScheduler: React.FC = () => {
                   </Grid>
                   
                   <Grid item xs={6}>
-                    <FormControl fullWidth required>
-                      <InputLabel>Time In</InputLabel>
-                      <Select
+                    <Autocomplete
+                      freeSolo
+                      options={generateTimeOptions()}
                         value={formData.timeIn}
-                        onChange={handleInputChange('timeIn')}
+                      onChange={(event, newValue) => {
+                        if (newValue) {
+                          const parsedTime = parseTimeInput(newValue);
+                          handleInputChange('timeIn')({ target: { value: parsedTime } });
+                        }
+                      }}
+                      onInputChange={(event, newInputValue) => {
+                        // Only update the form data directly without parsing during typing
+                        handleInputChange('timeIn')({ target: { value: newInputValue } });
+                      }}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
                         label="Time In"
-                      >
-                        {generateTimeOptions().map((time) => (
-                          <MenuItem key={time} value={time}>
-                            {time}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
+                          placeholder="Type or select time"
+                          helperText="Type: 9am, 9:30am, 9, 17, 1330"
+                          required
+                          variant="outlined"
+                          onBlur={(e) => {
+                            const parsedTime = parseTimeInput(e.target.value);
+                            handleInputChange('timeIn')({ target: { value: parsedTime } });
+                          }}
+                        />
+                      )}
+                    />
                   </Grid>
                   
                   <Grid item xs={6}>
-                    <FormControl fullWidth required>
-                      <InputLabel>Time Out</InputLabel>
-                      <Select
+                    <Autocomplete
+                      freeSolo
+                      options={generateTimeOptions()}
                         value={formData.timeOut}
-                        onChange={handleInputChange('timeOut')}
+                      onChange={(event, newValue) => {
+                        if (newValue) {
+                          const parsedTime = parseTimeInput(newValue);
+                          handleInputChange('timeOut')({ target: { value: parsedTime } });
+                        }
+                      }}
+                      onInputChange={(event, newInputValue) => {
+                        // Only update the form data directly without parsing during typing
+                        handleInputChange('timeOut')({ target: { value: newInputValue } });
+                      }}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
                         label="Time Out"
-                      >
-                        {generateTimeOptions().map((time) => (
-                          <MenuItem key={time} value={time}>
-                            {time}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
+                          placeholder="Type or select time"
+                          helperText="Type: 5pm, 5:30pm, 17, 1730"
+                          required
+                          variant="outlined"
+                          onBlur={(e) => {
+                            const parsedTime = parseTimeInput(e.target.value);
+                            handleInputChange('timeOut')({ target: { value: parsedTime } });
+                          }}
+                        />
+                      )}
+                    />
                   </Grid>
                 </>
               )}

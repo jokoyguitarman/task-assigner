@@ -2,8 +2,7 @@ import { supabase } from '../lib/supabase';
 import { 
   User, Task, TaskAssignment, StaffWorkingHours, 
   StaffPosition, Outlet, StaffProfile, MonthlySchedule, 
-  DailySchedule, TaskCompletionProof,
-  StaffEnrollmentFormData, OutletFormData, DailyScheduleFormData 
+  DailySchedule, TaskCompletionProof, Invitation, InvitationFormData
 } from '../types';
 
 // Helper function to check if Supabase is configured
@@ -37,9 +36,10 @@ const transformTask = (row: any): Task => ({
 const transformTaskAssignment = (row: any): TaskAssignment => ({
   id: row.id,
   taskId: row.task_id,
-  staffId: row.staff_id,
+  staffId: row.staff_id || undefined,
   assignedDate: new Date(row.assigned_date),
   dueDate: new Date(row.due_date),
+  outletId: row.outlet_id || undefined,
   status: row.status,
   completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
   completionProof: row.completion_proof,
@@ -64,8 +64,11 @@ const transformOutlet = (row: any): Outlet => ({
   phone: row.phone,
   email: row.email,
   managerId: row.manager_id,
+  userId: row.user_id,
   isActive: row.is_active,
   createdAt: new Date(row.created_at),
+  username: row.username,
+  password: row.password,
 });
 
 const transformStaffProfile = (row: any): StaffProfile => ({
@@ -115,6 +118,22 @@ const transformTaskCompletionProof = (row: any): TaskCompletionProof => ({
   createdBy: row.created_by || row.assignment_id, // Use assignment_id as fallback
 });
 
+const transformInvitation = (row: any): Invitation => ({
+  id: row.id,
+  email: row.email,
+  role: row.role,
+  outletId: row.outlet_id || undefined,
+  token: row.token,
+  expiresAt: new Date(row.expires_at),
+  usedAt: row.used_at ? new Date(row.used_at) : undefined,
+  createdBy: row.created_by,
+  createdAt: new Date(row.created_at),
+  updatedAt: new Date(row.updated_at),
+  // Populated fields
+  outlet: row.outlet ? transformOutlet(row.outlet) : undefined,
+  createdByUser: row.created_by_user ? transformUser(row.created_by_user) : undefined,
+});
+
 // Auth API
 export const authAPI = {
   async login(email: string, password: string): Promise<User> {
@@ -156,6 +175,8 @@ export const authAPI = {
       throw userError;
     }
 
+    console.log('🔍 Final user data from database:', userData);
+    console.log('🔍 Transformed user:', transformUser(userData));
     return transformUser(userData);
   },
 
@@ -438,9 +459,10 @@ export const assignmentsAPI = {
       .from('task_assignments')
       .insert({
         task_id: assignmentData.taskId,
-        staff_id: assignmentData.staffId,
+        staff_id: assignmentData.staffId || null,
         assigned_date: assignmentData.assignedDate.toISOString(),
         due_date: assignmentData.dueDate.toISOString(),
+        outlet_id: assignmentData.outletId || null,
         status: assignmentData.status,
         completed_at: assignmentData.completedAt?.toISOString(),
         completion_proof: assignmentData.completionProof,
@@ -464,9 +486,10 @@ export const assignmentsAPI = {
     };
 
     if (assignmentData.taskId) updateData.task_id = assignmentData.taskId;
-    if (assignmentData.staffId) updateData.staff_id = assignmentData.staffId;
+    if (assignmentData.staffId !== undefined) updateData.staff_id = assignmentData.staffId;
     if (assignmentData.assignedDate) updateData.assigned_date = assignmentData.assignedDate.toISOString();
     if (assignmentData.dueDate) updateData.due_date = assignmentData.dueDate.toISOString();
+    if (assignmentData.outletId !== undefined) updateData.outlet_id = assignmentData.outletId;
     if (assignmentData.status) updateData.status = assignmentData.status;
     if (assignmentData.completedAt) updateData.completed_at = assignmentData.completedAt.toISOString();
     if (assignmentData.completionProof) updateData.completion_proof = assignmentData.completionProof;
@@ -495,6 +518,44 @@ export const assignmentsAPI = {
       .eq('id', id);
 
     if (error) throw error;
+  },
+
+  async getByStaff(staffId: string): Promise<TaskAssignment[]> {
+    if (!isSupabaseConfigured()) {
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from('task_assignments')
+      .select('*')
+      .eq('staff_id', staffId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    return data.map(transformTaskAssignment);
+  },
+
+  async complete(id: string, completionProof?: string): Promise<TaskAssignment> {
+    if (!isSupabaseConfigured()) {
+      throw new Error('Supabase not configured');
+    }
+
+    const { data, error } = await supabase
+      .from('task_assignments')
+      .update({
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+        completion_proof: completionProof,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return transformTaskAssignment(data);
   },
 };
 
@@ -635,6 +696,8 @@ export const outletsAPI = {
         email: outletData.email,
         manager_id: outletData.managerId,
         is_active: outletData.isActive,
+        username: outletData.username,
+        password: outletData.password,
       })
       .select()
       .single();
@@ -658,6 +721,8 @@ export const outletsAPI = {
         email: outletData.email,
         manager_id: outletData.managerId,
         is_active: outletData.isActive,
+        username: outletData.username,
+        password: outletData.password,
       })
       .eq('id', id)
       .select()
@@ -795,6 +860,32 @@ export const staffProfilesAPI = {
 
 // Monthly Schedules API
 export const monthlySchedulesAPI = {
+  async getAll(): Promise<MonthlySchedule[]> {
+    if (!isSupabaseConfigured()) {
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from('monthly_schedules')
+      .select(`
+        *,
+        staff:staff_profiles(
+          *,
+          user:users(*),
+          position:staff_positions(*)
+        ),
+        daily_schedules(
+          *,
+          outlet:outlets(*)
+        )
+      `)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    return data.map(transformMonthlySchedule);
+  },
+
   async getByMonth(month: number, year: number): Promise<MonthlySchedule[]> {
     if (!isSupabaseConfigured()) {
       return [];
@@ -1086,5 +1177,125 @@ export const workingHoursAPI = {
   async update(id: string, workingHoursData: Partial<Omit<StaffWorkingHours, 'id' | 'createdAt' | 'updatedAt'>>): Promise<StaffWorkingHours> {
     // This would need to be implemented based on your specific requirements
     throw new Error('Not implemented yet');
+  },
+};
+
+// Invitations API
+export const invitationsAPI = {
+  async getAll(): Promise<Invitation[]> {
+    if (!isSupabaseConfigured()) {
+      throw new Error('Supabase not configured. Please set environment variables.');
+    }
+
+    const { data, error } = await supabase
+      .from('invitations')
+      .select(`
+        *,
+        outlet:outlets(*),
+        created_by_user:users!invitations_created_by_fkey(*)
+      `)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching invitations:', error);
+      throw new Error(`Failed to fetch invitations: ${error.message}`);
+    }
+
+    return data.map(transformInvitation);
+  },
+
+  async getByToken(token: string): Promise<Invitation | null> {
+    if (!isSupabaseConfigured()) {
+      throw new Error('Supabase not configured. Please set environment variables.');
+    }
+
+    const { data, error } = await supabase
+      .from('invitations')
+      .select(`
+        *,
+        outlet:outlets(*),
+        created_by_user:users!invitations_created_by_fkey(*)
+      `)
+      .eq('token', token)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null; // No invitation found
+      }
+      console.error('Error fetching invitation by token:', error);
+      throw new Error(`Failed to fetch invitation: ${error.message}`);
+    }
+
+    return transformInvitation(data);
+  },
+
+  async create(invitationData: InvitationFormData & { createdBy: string }): Promise<Invitation> {
+    if (!isSupabaseConfigured()) {
+      throw new Error('Supabase not configured. Please set environment variables.');
+    }
+
+    // Generate a unique token
+    const token = crypto.randomUUID();
+    
+    // Set expiration to 7 days from now
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+
+    const { data, error } = await supabase
+      .from('invitations')
+      .insert({
+        email: invitationData.email,
+        role: invitationData.role,
+        outlet_id: invitationData.outletId || null,
+        token,
+        expires_at: expiresAt.toISOString(),
+        created_by: invitationData.createdBy,
+      })
+      .select(`
+        *,
+        outlet:outlets(*),
+        created_by_user:users!invitations_created_by_fkey(*)
+      `)
+      .single();
+
+    if (error) {
+      console.error('Error creating invitation:', error);
+      throw new Error(`Failed to create invitation: ${error.message}`);
+    }
+
+    return transformInvitation(data);
+  },
+
+  async markAsUsed(token: string): Promise<void> {
+    if (!isSupabaseConfigured()) {
+      throw new Error('Supabase not configured. Please set environment variables.');
+    }
+
+    const { error } = await supabase
+      .from('invitations')
+      .update({ used_at: new Date().toISOString() })
+      .eq('token', token);
+
+    if (error) {
+      console.error('Error marking invitation as used:', error);
+      throw new Error(`Failed to mark invitation as used: ${error.message}`);
+    }
+  },
+
+  async delete(id: string): Promise<void> {
+    if (!isSupabaseConfigured()) {
+      throw new Error('Supabase not configured. Please set environment variables.');
+    }
+
+    const { error } = await supabase
+      .from('invitations')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error deleting invitation:', error);
+      throw new Error(`Failed to delete invitation: ${error.message}`);
+    }
   },
 };

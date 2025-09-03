@@ -16,6 +16,14 @@ import {
   Slide,
   Chip,
   Paper,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import {
   Assignment,
@@ -30,26 +38,66 @@ import {
   Dashboard as DashboardIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
-import { TaskAssignment, Task } from '../../types';
-import { assignmentsAPI, tasksAPI } from '../../services/api';
+import { TaskAssignment, Task, StaffProfile } from '../../types';
+import { assignmentsAPI, tasksAPI, staffProfilesAPI } from '../../services/supabaseService';
 
 const StaffDashboard: React.FC = () => {
-  const { user } = useAuth();
+  const { user, currentOutlet, isOutletUser } = useAuth();
   const [assignments, setAssignments] = useState<TaskAssignment[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [unassignedTasks, setUnassignedTasks] = useState<TaskAssignment[]>([]);
+  const [staffProfile, setStaffProfile] = useState<StaffProfile | null>(null);
+  const [allStaffProfiles, setAllStaffProfiles] = useState<StaffProfile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [assignDialogOpen, setAssignDialogOpen] = useState(false);
+  const [selectedAssignmentId, setSelectedAssignmentId] = useState<string>('');
+  const [selectedStaffId, setSelectedStaffId] = useState<string>('');
 
   useEffect(() => {
     const loadData = async () => {
       if (!user) return;
       
+
+      
       try {
-        const [assignmentsData, tasksData] = await Promise.all([
-          assignmentsAPI.getByStaff(user.id),
+        // First get the staff profile for this user and all staff profiles
+        const staffProfiles = await staffProfilesAPI.getAll();
+        const currentStaffProfile = staffProfiles.find(sp => sp.userId === user.id);
+        setStaffProfile(currentStaffProfile || null);
+        setAllStaffProfiles(staffProfiles);
+
+        const [assignmentsData, tasksData, allAssignments] = await Promise.all([
+          currentStaffProfile ? assignmentsAPI.getByStaff(currentStaffProfile.id) : Promise.resolve([]),
           tasksAPI.getAll(),
+          assignmentsAPI.getAll(),
         ]);
+        
         setAssignments(assignmentsData);
         setTasks(tasksData);
+        
+        // Filter tasks based on outlet for outlet users
+        let unassigned = allAssignments.filter(assignment =>
+          !assignment.staffId
+        );
+
+        if (isOutletUser && currentOutlet) {
+          // For outlet users, show all tasks (assigned and unassigned) for their outlet
+          const outletTasks = allAssignments.filter(assignment =>
+            assignment.outletId === currentOutlet.id
+          );
+          
+          // Show assigned tasks in the main assignments list
+          setAssignments(outletTasks.filter(assignment => assignment.staffId));
+          
+          // Show unassigned tasks in the unassigned list
+          unassigned = outletTasks.filter(assignment => !assignment.staffId);
+        } else {
+          // Staff users see all unassigned tasks
+          unassigned = allAssignments.filter(assignment =>
+            !assignment.staffId
+          );
+        }
+        setUnassignedTasks(unassigned);
       } catch (error) {
         console.error('Error loading dashboard data:', error);
       } finally {
@@ -60,7 +108,56 @@ const StaffDashboard: React.FC = () => {
     if (user) {
       loadData();
     }
-  }, [user]);
+  }, [user, currentOutlet, isOutletUser]);
+
+  const handleTakeTask = (assignmentId: string) => {
+    setSelectedAssignmentId(assignmentId);
+    setSelectedStaffId('');
+    setAssignDialogOpen(true);
+  };
+
+  const handleConfirmAssignment = async () => {
+    if (!selectedStaffId || !selectedAssignmentId) return;
+    
+    try {
+      await assignmentsAPI.update(selectedAssignmentId, {
+        staffId: selectedStaffId,
+      });
+      
+      // Reload data to reflect changes
+      const [assignmentsData, allAssignments] = await Promise.all([
+        staffProfile ? assignmentsAPI.getByStaff(staffProfile.id) : Promise.resolve([]),
+        assignmentsAPI.getAll(),
+      ]);
+      
+      if (isOutletUser && currentOutlet) {
+        // For outlet users, filter by outlet
+        const outletTasks = allAssignments.filter(assignment =>
+          assignment.outletId === currentOutlet.id
+        );
+        setAssignments(outletTasks.filter(assignment => assignment.staffId));
+        setUnassignedTasks(outletTasks.filter(assignment => !assignment.staffId));
+      } else {
+        // For staff users, show all tasks
+        setAssignments(assignmentsData);
+        const unassigned = allAssignments.filter(assignment => !assignment.staffId);
+        setUnassignedTasks(unassigned);
+      }
+      
+      // Close dialog
+      setAssignDialogOpen(false);
+      setSelectedAssignmentId('');
+      setSelectedStaffId('');
+    } catch (error) {
+      console.error('Error assigning task:', error);
+    }
+  };
+
+  const handleCancelAssignment = () => {
+    setAssignDialogOpen(false);
+    setSelectedAssignmentId('');
+    setSelectedStaffId('');
+  };
 
   const getTaskTitle = (taskId: string) => {
     const task = tasks.find(t => t.id === taskId);
@@ -74,9 +171,15 @@ const StaffDashboard: React.FC = () => {
 
 
 
-  const pendingAssignments = assignments.filter(a => a.status === 'pending');
-  const overdueAssignments = assignments.filter(a => a.status === 'overdue');
-  const completedToday = assignments.filter(a => 
+  // For outlet users, calculate metrics based on all outlet tasks (assigned + unassigned)
+  // For staff users, use only their assigned tasks
+  const allOutletTasks = isOutletUser && currentOutlet 
+    ? [...assignments, ...unassignedTasks] // All tasks for the outlet
+    : assignments; // Only assigned tasks for staff
+
+  const pendingAssignments = allOutletTasks.filter(a => a.status === 'pending');
+  const overdueAssignments = allOutletTasks.filter(a => a.status === 'overdue');
+  const completedToday = allOutletTasks.filter(a => 
     a.status === 'completed' && 
     a.completedAt && 
     new Date(a.completedAt).toDateString() === new Date().toDateString()
@@ -505,7 +608,167 @@ const StaffDashboard: React.FC = () => {
             </Fade>
           </Box>
         </Grid>
+
+        {/* Available Tasks to Take */}
+        {unassignedTasks.length > 0 && (
+          <Grid item xs={12}>
+            <Fade in timeout={1800}>
+              <Card>
+                <CardContent>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+                    <Avatar sx={{ bgcolor: 'info.main', width: 40, height: 40 }}>
+                      <TaskAlt />
+                    </Avatar>
+                    <Box>
+                      <Typography variant="h6" fontWeight={600}>
+                        Available Tasks
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {isOutletUser && currentOutlet 
+                          ? `Tasks available for ${currentOutlet.name} team assignment`
+                          : 'Tasks available for team assignment'
+                        }
+                      </Typography>
+                    </Box>
+                  </Box>
+
+                  <List sx={{ width: '100%' }}>
+                    {unassignedTasks.map((assignment, index) => (
+                      <Fade in timeout={2000 + index * 100} key={assignment.id}>
+                        <Paper
+                          elevation={2}
+                          sx={{
+                            mb: 2,
+                            p: 3,
+                            borderRadius: 3,
+                            border: '1px solid',
+                            borderColor: 'divider',
+                            transition: 'all 0.3s ease',
+                            '&:hover': {
+                              borderColor: 'info.main',
+                              transform: 'translateY(-2px)',
+                              boxShadow: 6,
+                            },
+                          }}
+                        >
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <Box sx={{ flex: 1 }}>
+                              <Typography variant="h6" fontWeight={600} gutterBottom>
+                                {getTaskTitle(assignment.taskId)}
+                              </Typography>
+                              
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+                                <Chip
+                                  icon={<Schedule />}
+                                  label={`Due: ${assignment.dueDate.toLocaleDateString()}`}
+                                  variant="outlined"
+                                  size="small"
+                                />
+                                <Chip
+                                  icon={<AccessTime />}
+                                  label={`${getTaskEstimatedTime(assignment.taskId)} min`}
+                                  variant="outlined"
+                                  size="small"
+                                />
+                              </Box>
+                            </Box>
+
+                            <Button
+                              variant="contained"
+                              color="info"
+                              onClick={() => handleTakeTask(assignment.id)}
+                              sx={{
+                                borderRadius: 2,
+                                px: 3,
+                                py: 1,
+                                '&:hover': {
+                                  transform: 'scale(1.05)',
+                                },
+                              }}
+                            >
+                              Assign to Team
+                            </Button>
+                          </Box>
+                        </Paper>
+                      </Fade>
+                    ))}
+                  </List>
+                </CardContent>
+              </Card>
+            </Fade>
+          </Grid>
+        )}
       </Grid>
+
+      {/* Assignment Dialog */}
+      <Dialog open={assignDialogOpen} onClose={handleCancelAssignment} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          <Typography variant="h6" fontWeight={600}>
+            Assign Task to Team Member
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Who will be responsible for completing this task?
+          </Typography>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 2 }}>
+            <FormControl fullWidth>
+              <InputLabel>Select Team Member</InputLabel>
+              <Select
+                value={selectedStaffId}
+                onChange={(e) => setSelectedStaffId(e.target.value)}
+                label="Select Team Member"
+              >
+                {allStaffProfiles
+                  .filter(profile => {
+                    if (!profile.isActive) return false;
+                    // If outlet user, only show staff from the same outlet
+                    // Note: We'll need to implement outlet assignment for staff later
+                    // For now, show all active staff
+                    return true;
+                  })
+                  .map((profile) => (
+                    <MenuItem key={profile.id} value={profile.id}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <Avatar sx={{ width: 32, height: 32 }}>
+                          {(profile.user?.name || profile.employeeId).charAt(0)}
+                        </Avatar>
+                        <Box>
+                          <Typography variant="subtitle2">
+                            {profile.user?.name || 'Unknown Staff'}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {profile.position?.name} • {profile.employeeId}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </MenuItem>
+                  ))}
+              </Select>
+            </FormControl>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCancelAssignment} color="inherit">
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleConfirmAssignment} 
+            variant="contained" 
+            color="info"
+            disabled={!selectedStaffId}
+            sx={{
+              borderRadius: 2,
+              px: 3,
+              '&:hover': {
+                transform: 'scale(1.05)',
+              },
+            }}
+          >
+            Assign Task
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

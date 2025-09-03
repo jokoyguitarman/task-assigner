@@ -1,5 +1,5 @@
 // Service Worker for Task Assigner PWA
-const CACHE_NAME = 'task-assigner-v1';
+const CACHE_NAME = 'task-assigner-v3';
 const urlsToCache = [
   '/',
   '/static/js/bundle.js',
@@ -9,6 +9,8 @@ const urlsToCache = [
 
 // Install event
 self.addEventListener('install', (event) => {
+  // Skip waiting to activate new service worker immediately
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
@@ -31,6 +33,8 @@ self.addEventListener('fetch', (event) => {
 
 // Activate event
 self.addEventListener('activate', (event) => {
+  // Take control of all clients immediately
+  self.clients.claim();
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(

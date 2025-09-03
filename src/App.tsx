@@ -7,6 +7,8 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import AppLayout from './components/layout/AppLayout';
 import LoginForm from './components/auth/LoginForm';
 import AdminSignup from './components/auth/AdminSignup';
+import SignupForm from './components/auth/SignupForm';
+import StaffOutletAuth from './components/auth/StaffOutletAuth';
 import AdminDashboard from './components/admin/Dashboard';
 import TaskList from './components/admin/TaskList';
 import AssignmentList from './components/admin/AssignmentList';
@@ -15,8 +17,10 @@ import StaffEnrollment from './components/admin/StaffEnrollment';
 import MonthlyScheduler from './components/admin/MonthlyScheduler';
 import StaffAccountCreation from './components/admin/StaffAccountCreation';
 import TaskCompletionReports from './components/admin/TaskCompletionReports';
+import InvitationManagement from './components/admin/InvitationManagement';
 import StaffDashboard from './components/staff/StaffDashboard';
 import TaskCompletion from './components/staff/TaskCompletion';
+import TeamScheduler from './components/staff/TeamScheduler';
 
 // Create a modern theme
 const theme = createTheme({
@@ -178,7 +182,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; requiredRole?: 'admi
   return <AppLayout>{children}</AppLayout>;
 };
 
-// Admin Routes Component
+// Admin Routes Component  
 const AdminRoutes: React.FC = () => (
   <Routes>
     <Route path="/dashboard" element={<AdminDashboard />} />
@@ -189,6 +193,7 @@ const AdminRoutes: React.FC = () => (
     <Route path="/scheduler" element={<MonthlyScheduler />} />
     <Route path="/assignments" element={<AssignmentList />} />
     <Route path="/reports" element={<TaskCompletionReports />} />
+    <Route path="/invitations" element={<InvitationManagement />} />
     <Route path="*" element={<Navigate to="/dashboard" replace />} />
   </Routes>
 );
@@ -197,6 +202,7 @@ const AdminRoutes: React.FC = () => (
 const StaffRoutes: React.FC = () => (
   <Routes>
     <Route path="/dashboard" element={<StaffDashboard />} />
+    <Route path="/schedules" element={<TeamScheduler />} />
     <Route path="/tasks/:assignmentId/complete" element={<TaskCompletion />} />
     <Route path="*" element={<Navigate to="/dashboard" replace />} />
   </Routes>
@@ -210,22 +216,8 @@ const AppRoutes: React.FC = () => {
     <Routes>
       <Route path="/login" element={<LoginForm />} />
       <Route path="/admin-signup" element={<AdminSignup />} />
-      <Route 
-        path="/admin/*" 
-        element={
-          <ProtectedRoute requiredRole="admin">
-            <AdminRoutes />
-          </ProtectedRoute>
-        } 
-      />
-      <Route 
-        path="/staff/*" 
-        element={
-          <ProtectedRoute requiredRole="staff">
-            <StaffRoutes />
-          </ProtectedRoute>
-        } 
-      />
+      <Route path="/signup" element={<SignupForm />} />
+      <Route path="/staff-signup" element={<StaffOutletAuth />} />
       <Route 
         path="/*" 
         element={
@@ -240,6 +232,12 @@ const AppRoutes: React.FC = () => {
 };
 
 const App: React.FC = () => {
+  console.log('🚀 App component loaded!');
+  console.log('🔧 Environment check:', {
+    supabaseUrl: process.env.REACT_APP_SUPABASE_URL ? 'Set' : 'Missing',
+    supabaseKey: process.env.REACT_APP_SUPABASE_ANON_KEY ? 'Set' : 'Missing'
+  });
+  
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider theme={theme}>
