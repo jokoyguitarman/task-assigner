@@ -181,6 +181,8 @@ const StaffEnrollment: React.FC = () => {
             email: formData.email || `${employeeId}@company.com`, // Use employee ID if no email
             name: formData.name,
             role: 'staff',
+            currentStreak: 0,
+            longestStreak: 0,
           });
 
           // Then create staff profile

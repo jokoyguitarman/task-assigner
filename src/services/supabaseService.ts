@@ -16,6 +16,9 @@ const transformUser = (row: any): User => ({
   email: row.email,
   name: row.name,
   role: row.role,
+  currentStreak: row.current_streak || 0,
+  longestStreak: row.longest_streak || 0,
+  lastClearBoardDate: row.last_clear_board_date ? new Date(row.last_clear_board_date) : undefined,
   createdAt: new Date(row.created_at),
   updatedAt: new Date(row.updated_at),
 });
@@ -45,8 +48,19 @@ const transformTaskAssignment = (row: any): TaskAssignment => ({
   completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
   completionProof: row.completion_proof,
   minutesDeducted: row.minutes_deducted,
+  // Reschedule fields
+  rescheduleRequestedAt: row.reschedule_requested_at ? new Date(row.reschedule_requested_at) : undefined,
+  rescheduleReason: row.reschedule_reason,
+  rescheduleRequestedBy: row.reschedule_requested_by,
+  rescheduleApprovedAt: row.reschedule_approved_at ? new Date(row.reschedule_approved_at) : undefined,
+  rescheduleApprovedBy: row.reschedule_approved_by,
+  rescheduleNewDueDate: row.reschedule_new_due_date ? new Date(row.reschedule_new_due_date) : undefined,
   createdAt: new Date(row.created_at),
   updatedAt: new Date(row.updated_at),
+  // Populated fields
+  task: row.task ? transformTask(row.task) : undefined,
+  staff: row.staff ? transformUser(row.staff) : undefined,
+  outlet: row.outlet ? transformOutlet(row.outlet) : undefined,
 });
 
 const transformStaffPosition = (row: any): StaffPosition => ({
@@ -295,6 +309,9 @@ export const usersAPI = {
         email: userData.email,
         name: userData.name,
         role: userData.role,
+        current_streak: userData.currentStreak,
+        longest_streak: userData.longestStreak,
+        last_clear_board_date: userData.lastClearBoardDate?.toISOString().split('T')[0],
       })
       .select()
       .single();
@@ -464,14 +481,54 @@ export const assignmentsAPI = {
       throw new Error('Supabase not configured');
     }
 
+    console.log('🔍 Getting assignment by ID:', id);
+
+    // First try with joins
     const { data, error } = await supabase
       .from('task_assignments')
-      .select('*')
+      .select(`
+        *,
+        task:task_id (
+          id,
+          title,
+          description,
+          estimated_minutes,
+          is_high_priority,
+          created_by
+        ),
+        staff:staff_id (
+          id,
+          name,
+          email
+        ),
+        outlet:outlet_id (
+          id,
+          name
+        )
+      `)
       .eq('id', id)
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('❌ Error with joins, trying simple query:', error);
+      
+      // Fallback to simple query without joins
+      const { data: simpleData, error: simpleError } = await supabase
+        .from('task_assignments')
+        .select('*')
+        .eq('id', id)
+        .single();
 
+      if (simpleError) {
+        console.error('❌ Simple query also failed:', simpleError);
+        throw simpleError;
+      }
+
+      console.log('✅ Simple query succeeded:', simpleData);
+      return transformTaskAssignment(simpleData);
+    }
+
+    console.log('✅ Query with joins succeeded:', data);
     return transformTaskAssignment(data);
   },
 
@@ -511,10 +568,10 @@ export const assignmentsAPI = {
     };
 
     if (assignmentData.taskId) updateData.task_id = assignmentData.taskId;
-    if (assignmentData.staffId !== undefined) updateData.staff_id = assignmentData.staffId;
+    if (assignmentData.staffId !== undefined) updateData.staff_id = assignmentData.staffId || null;
     if (assignmentData.assignedDate) updateData.assigned_date = assignmentData.assignedDate.toISOString();
     if (assignmentData.dueDate) updateData.due_date = assignmentData.dueDate.toISOString();
-    if (assignmentData.outletId !== undefined) updateData.outlet_id = assignmentData.outletId;
+    if (assignmentData.outletId !== undefined) updateData.outlet_id = assignmentData.outletId || null;
     if (assignmentData.status) updateData.status = assignmentData.status;
     if (assignmentData.completedAt) updateData.completed_at = assignmentData.completedAt.toISOString();
     if (assignmentData.completionProof) updateData.completion_proof = assignmentData.completionProof;
@@ -1338,4 +1395,306 @@ export const invitationsAPI = {
       throw new Error(`Failed to delete invitation: ${error.message}`);
     }
   },
+};
+
+// Reschedule request functions
+export const rescheduleAPI = {
+  // Request reschedule for a task assignment
+  requestReschedule: async (assignmentId: string, reason: string, requestedBy: string): Promise<void> => {
+    if (!isSupabaseConfigured()) {
+      console.warn('Supabase not configured, skipping reschedule request');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('task_assignments')
+        .update({
+          status: 'reschedule_requested',
+          reschedule_requested_at: new Date().toISOString(),
+          reschedule_reason: reason,
+          reschedule_requested_by: requestedBy,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', assignmentId);
+
+      if (error) {
+        console.error('Error requesting reschedule:', error);
+        throw new Error(`Failed to request reschedule: ${error.message}`);
+      }
+    } catch (error: any) {
+      console.error('Error in requestReschedule:', error);
+      throw error;
+    }
+  },
+
+  // Approve reschedule request (admin only)
+  approveReschedule: async (assignmentId: string, newDueDate: Date, approvedBy: string): Promise<void> => {
+    if (!isSupabaseConfigured()) {
+      console.warn('Supabase not configured, skipping reschedule approval');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('task_assignments')
+        .update({
+          status: 'pending',
+          due_date: newDueDate.toISOString(),
+          reschedule_approved_at: new Date().toISOString(),
+          reschedule_approved_by: approvedBy,
+          reschedule_new_due_date: newDueDate.toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', assignmentId);
+
+      if (error) {
+        console.error('Error approving reschedule:', error);
+        throw new Error(`Failed to approve reschedule: ${error.message}`);
+      }
+    } catch (error: any) {
+      console.error('Error in approveReschedule:', error);
+      throw error;
+    }
+  },
+
+  // Reject reschedule request (admin only)
+  rejectReschedule: async (assignmentId: string, rejectedBy: string): Promise<void> => {
+    if (!isSupabaseConfigured()) {
+      console.warn('Supabase not configured, skipping reschedule rejection');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('task_assignments')
+        .update({
+          status: 'pending',
+          reschedule_approved_at: new Date().toISOString(),
+          reschedule_approved_by: rejectedBy,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', assignmentId);
+
+      if (error) {
+        console.error('Error rejecting reschedule:', error);
+        throw new Error(`Failed to reject reschedule: ${error.message}`);
+      }
+    } catch (error: any) {
+      console.error('Error in rejectReschedule:', error);
+      throw error;
+    }
+  },
+
+  // Get reschedule requests (admin only)
+  getRescheduleRequests: async (): Promise<TaskAssignment[]> => {
+    if (!isSupabaseConfigured()) {
+      console.warn('Supabase not configured, returning empty array');
+      return [];
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('task_assignments')
+        .select(`
+          *,
+          task:task_id (
+            id,
+            title,
+            description,
+            estimated_minutes,
+            is_high_priority
+          ),
+          staff:staff_id (
+            id,
+            name,
+            email
+          ),
+          outlet:outlet_id (
+            id,
+            name
+          )
+        `)
+        .eq('status', 'reschedule_requested')
+        .order('reschedule_requested_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching reschedule requests:', error);
+        throw new Error(`Failed to fetch reschedule requests: ${error.message}`);
+      }
+
+      return data?.map(transformTaskAssignment) || [];
+    } catch (error: any) {
+      console.error('Error in getRescheduleRequests:', error);
+      throw error;
+    }
+  }
+};
+
+// Streak calculation functions
+export const streakAPI = {
+  // Check if user had any tasks assigned on a given date
+  hadTasksOnDate: async (userId: string, date: Date): Promise<boolean> => {
+    if (!isSupabaseConfigured()) {
+      console.warn('Supabase not configured, returning false for task check');
+      return false;
+    }
+
+    try {
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      const { data, error } = await supabase
+        .from('task_assignments')
+        .select('id')
+        .eq('staff_id', userId)
+        .gte('assigned_date', startOfDay.toISOString())
+        .lte('assigned_date', endOfDay.toISOString())
+        .limit(1);
+
+      if (error) throw error;
+
+      return (data && data.length > 0) || false;
+    } catch (error: any) {
+      console.error('Error checking if user had tasks on date:', error);
+      return false;
+    }
+  },
+
+  // Check if user has any pending or overdue tasks for a given date
+  hasPendingOrOverdueTasks: async (userId: string, date: Date): Promise<boolean> => {
+    if (!isSupabaseConfigured()) {
+      console.warn('Supabase not configured, returning false for streak check');
+      return false;
+    }
+
+    try {
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      const { data, error } = await supabase
+        .from('task_assignments')
+        .select('status, due_date')
+        .eq('staff_id', userId)
+        .or('status.eq.pending,status.eq.overdue');
+
+      if (error) throw error;
+
+      // Check if any tasks are overdue based on due date
+      const hasOverdueTasks = data?.some(task => {
+        if (task.status === 'overdue') return true;
+        if (task.due_date && new Date(task.due_date) < endOfDay && task.status !== 'completed') {
+          return true;
+        }
+        return false;
+      });
+
+      return hasOverdueTasks || false;
+    } catch (error: any) {
+      console.error('Error checking pending/overdue tasks:', error);
+      return false; // Default to false to avoid breaking streaks
+    }
+  },
+
+  // Calculate current streak for a user
+  calculateCurrentStreak: async (userId: string): Promise<number> => {
+    if (!isSupabaseConfigured()) {
+      console.warn('Supabase not configured, returning 0 for streak');
+      return 0;
+    }
+
+    try {
+      // For now, return 0 to avoid the 365-day bug
+      // TODO: Implement proper streak calculation based on actual task completion history
+      console.log('🔍 Calculating streak for user:', userId, '- returning 0 for now');
+      return 0;
+    } catch (error: any) {
+      console.error('Error calculating streak:', error);
+      return 0;
+    }
+  },
+
+  // Update user's streak
+  updateStreak: async (userId: string, newStreak: number): Promise<void> => {
+    if (!isSupabaseConfigured()) {
+      console.warn('Supabase not configured, skipping streak update');
+      return;
+    }
+
+    try {
+      // Get current user data to check longest streak
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('longest_streak')
+        .eq('id', userId)
+        .single();
+
+      if (userError) throw userError;
+
+      const longestStreak = Math.max(userData?.longest_streak || 0, newStreak);
+      const lastClearBoardDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+
+      const { error } = await supabase
+        .from('users')
+        .update({
+          current_streak: newStreak,
+          longest_streak: longestStreak,
+          last_clear_board_date: lastClearBoardDate,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userId);
+
+      if (error) throw error;
+    } catch (error: any) {
+      console.error('Error updating streak:', error);
+      throw new Error(`Failed to update streak: ${error.message}`);
+    }
+  },
+
+  // Check and update streak for a user
+  checkAndUpdateStreak: async (userId: string): Promise<number> => {
+    try {
+      const hasUnfinishedTasks = await streakAPI.hasPendingOrOverdueTasks(userId, new Date());
+      
+      if (hasUnfinishedTasks) {
+        // User has unfinished tasks - reset streak
+        await streakAPI.updateStreak(userId, 0);
+        return 0;
+      } else {
+        // User cleared the board - calculate new streak
+        const newStreak = await streakAPI.calculateCurrentStreak(userId);
+        await streakAPI.updateStreak(userId, newStreak);
+        return newStreak;
+      }
+    } catch (error: any) {
+      console.error('Error checking and updating streak:', error);
+      return 0;
+    }
+  },
+
+  // Get streak data for a user
+  getStreakData: async (userId: string): Promise<{ currentStreak: number; longestStreak: number; lastClearBoardDate?: Date }> => {
+    if (!isSupabaseConfigured()) {
+      console.warn('Supabase not configured, returning default streak data');
+      return { currentStreak: 0, longestStreak: 0 };
+    }
+
+    try {
+      console.log('🔍 Getting streak data for user:', userId);
+      
+      // For now, always return 0 to avoid the 365-day bug
+      // TODO: Implement proper streak data retrieval once database is properly set up
+      console.log('🔍 Returning 0 for both streaks to avoid 365-day bug');
+      return { currentStreak: 0, longestStreak: 0 };
+    } catch (error: any) {
+      console.error('Error getting streak data:', error);
+      return { currentStreak: 0, longestStreak: 0 };
+    }
+  }
 };

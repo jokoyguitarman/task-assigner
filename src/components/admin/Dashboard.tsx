@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Grid,
@@ -39,6 +39,8 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { TaskAssignment, Task, User, StaffProfile, Outlet } from '../../types';
 import { assignmentsAPI, tasksAPI, usersAPI, staffProfilesAPI, outletsAPI } from '../../services/supabaseService';
+import Leaderboard from './Leaderboard';
+import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 
 const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -67,7 +69,7 @@ const AdminDashboard: React.FC = () => {
     }, 5 * 60 * 1000); // 5 minutes
 
     return () => clearInterval(interval);
-  }, [assignments]);
+  }, []); // Remove assignments dependency to prevent infinite loop
 
   const updateOverdueAssignments = async () => {
     try {
@@ -84,15 +86,14 @@ const AdminDashboard: React.FC = () => {
 
       if (overdueAssignments.length > 0) {
         console.log(`Updated ${overdueAssignments.length} assignments to overdue status`);
-        // Reload data to reflect changes
-        await loadData();
+        // The auto-refresh will handle reloading the data
       }
     } catch (error) {
       console.error('Error updating overdue assignments:', error);
     }
   };
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       const [assignmentsData, tasksData, staffData, staffProfilesData, outletsData] = await Promise.all([
@@ -112,7 +113,10 @@ const AdminDashboard: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  // Auto-refresh when data changes
+  useAutoRefresh({ refreshFunction: loadData });
 
   const getStatusColor = (assignment: TaskAssignment) => {
     if (assignment.status === 'completed') return 'success';
@@ -758,6 +762,11 @@ const AdminDashboard: React.FC = () => {
           </Box>
         </Grid>
       </Grid>
+
+      {/* Performance Leaderboard */}
+      <Box sx={{ mt: 4 }}>
+        <Leaderboard />
+      </Box>
 
       {/* Assignment Details Dialog */}
       <Dialog

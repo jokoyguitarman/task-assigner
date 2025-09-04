@@ -10,3 +10,4 @@ COMMENT ON COLUMN public.outlets.user_id IS 'Link to auth.users for outlet login
 
 
 
+

@@ -1,152 +1,150 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import {
   Box,
   Card,
   CardContent,
   Typography,
   Button,
+  TextField,
   Alert,
   CircularProgress,
+  LinearProgress,
+  Chip,
   Grid,
   Paper,
+  IconButton,
+  Tooltip
 } from '@mui/material';
 import {
+  ArrowBack,
   CameraAlt,
-  Videocam,
-  PhotoLibrary,
-  Delete,
+  Upload,
   CheckCircle,
+  Warning,
+  AccessTime,
+  Person,
+  LocationOn,
+  PriorityHigh
 } from '@mui/icons-material';
-import { useParams, useNavigate } from 'react-router-dom';
-import { TaskAssignment, Task } from '../../types';
-import { assignmentsAPI, tasksAPI } from '../../services/supabaseService';
+import { useAuth } from '../../contexts/AuthContext';
+import { assignmentsAPI, tasksAPI, outletsAPI, usersAPI } from '../../services/supabaseService';
+import { TaskAssignment, Task, Outlet, User } from '../../types';
 
 const TaskCompletion: React.FC = () => {
   const { assignmentId } = useParams<{ assignmentId: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  
   const [assignment, setAssignment] = useState<TaskAssignment | null>(null);
   const [task, setTask] = useState<Task | null>(null);
+  const [outlet, setOutlet] = useState<Outlet | null>(null);
+  const [assignedBy, setAssignedBy] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
-  const [capturedMedia, setCapturedMedia] = useState<string | null>(null);
-  const [mediaType, setMediaType] = useState<'photo' | 'video' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
   
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Form state
+  const [completionNotes, setCompletionNotes] = useState('');
+  const [proofFiles, setProofFiles] = useState<File[]>([]);
 
-  React.useEffect(() => {
-    const loadAssignment = async () => {
-      try {
-        const [assignmentData, taskData] = await Promise.all([
-          assignmentsAPI.getById(assignmentId!),
-          tasksAPI.getById(assignmentId!), // This should be taskId from assignment
-        ]);
-        setAssignment(assignmentData);
-        setTask(taskData);
-      } catch (error) {
-        console.error('Error loading assignment:', error);
-        setError('Failed to load task details');
-      } finally {
-        setLoading(false);
-      }
-    };
-
+  useEffect(() => {
     if (assignmentId) {
-      loadAssignment();
+      loadAssignmentData();
     }
   }, [assignmentId]);
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const result = e.target?.result as string;
-        setCapturedMedia(result);
-        setMediaType(file.type.startsWith('video') ? 'video' : 'photo');
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const capturePhoto = async () => {
+  const loadAssignmentData = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-      }
-    } catch (error) {
-      console.error('Error accessing camera:', error);
-      setError('Unable to access camera. Please use file upload instead.');
-    }
-  };
+      setLoading(true);
+      setError(null);
 
-  const takePhoto = () => {
-    if (videoRef.current && canvasRef.current) {
-      const canvas = canvasRef.current;
-      const video = videoRef.current;
-      const context = canvas.getContext('2d');
+      // Load assignment data with related information
+      const assignmentData = await assignmentsAPI.getById(assignmentId!);
+      setAssignment(assignmentData);
+
+      // Extract task and outlet data from the assignment
+      if (assignmentData.task) {
+        setTask(assignmentData.task);
+      } else {
+        // If task data not included, fetch it separately
+        const taskData = await tasksAPI.getById(assignmentData.taskId);
+        setTask(taskData);
+      }
       
-      if (context) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        context.drawImage(video, 0, 0);
-        
-        const dataURL = canvas.toDataURL('image/jpeg');
-        setCapturedMedia(dataURL);
-        setMediaType('photo');
-        
-        // Stop the video stream
-        const stream = video.srcObject as MediaStream;
-        stream.getTracks().forEach(track => track.stop());
-        video.srcObject = null;
+      if (assignmentData.outlet) {
+        setOutlet(assignmentData.outlet);
+      } else if (assignmentData.outletId) {
+        // If outlet data not included, fetch it separately
+        const outletData = await outletsAPI.getById(assignmentData.outletId);
+        setOutlet(outletData);
       }
+
+      // Load users to find who assigned the task
+      const usersData = await usersAPI.getAll();
+      const taskToUse = assignmentData.task || await tasksAPI.getById(assignmentData.taskId);
+      const assigner = usersData.find(u => u.id === taskToUse.createdBy);
+      setAssignedBy(assigner || null);
+
+    } catch (err: any) {
+      console.error('Error loading assignment data:', err);
+      setError(err.message || 'Failed to load task details');
+    } finally {
+      setLoading(false);
     }
   };
 
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    setProofFiles(prev => [...prev, ...files]);
+  };
 
+  const isMobile = () => {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  };
 
-  const recordVideo = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: true, 
-        audio: true 
-      });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
+  const handleCameraUpload = () => {
+    const input = document.getElementById('proof-upload') as HTMLInputElement;
+    if (input) {
+      // For mobile devices, set capture attribute to open camera first
+      if (isMobile()) {
+        input.setAttribute('capture', 'environment'); // Use back camera
       }
-    } catch (error) {
-      console.error('Error accessing camera for video:', error);
-      setError('Unable to access camera for video recording.');
+      input.click();
     }
   };
 
-  const removeMedia = () => {
-    setCapturedMedia(null);
-    setMediaType(null);
+  const removeFile = (index: number) => {
+    setProofFiles(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async () => {
-    if (!capturedMedia || !assignmentId) {
-      setError('Please provide proof of completion (photo or video)');
-      return;
-    }
+    if (!assignment || !task) return;
 
     setSubmitting(true);
-    setError('');
+    setError(null);
 
     try {
-      // In a real app, you would upload the media to a server first
-      // For now, we'll use the data URL directly
-      await assignmentsAPI.complete(assignmentId, capturedMedia);
-      navigate('/dashboard');
-    } catch (error) {
-      console.error('Error completing task:', error);
-      setError('Failed to complete task. Please try again.');
+      // For now, just mark as completed without file upload
+      // TODO: Implement file upload to Supabase storage
+      await assignmentsAPI.update(assignment.id, {
+        status: 'completed',
+        completedAt: new Date(),
+        minutesDeducted: task.estimatedMinutes,
+        // completionProof: 'placeholder' // Will be updated when file upload is implemented
+      });
+
+      setSuccess(true);
+      
+      // Redirect back to dashboard after 2 seconds
+      setTimeout(() => {
+        navigate('/staff-dashboard');
+      }, 2000);
+
+    } catch (err: any) {
+      console.error('Error completing task:', err);
+      setError(err.message || 'Failed to complete task');
     } finally {
       setSubmitting(false);
     }
@@ -154,25 +152,79 @@ const TaskCompletion: React.FC = () => {
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress />
+      <Box sx={{ p: 3 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+          <IconButton onClick={() => navigate('/staff-dashboard')} sx={{ mr: 2 }}>
+            <ArrowBack />
+          </IconButton>
+          <Typography variant="h4">Complete Task</Typography>
+        </Box>
+        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
+          <CircularProgress />
+        </Box>
+      </Box>
+    );
+  }
+
+  if (error) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+          <IconButton onClick={() => navigate('/staff-dashboard')} sx={{ mr: 2 }}>
+            <ArrowBack />
+          </IconButton>
+          <Typography variant="h4">Complete Task</Typography>
+        </Box>
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+        <Button variant="contained" onClick={() => navigate('/staff-dashboard')}>
+          Back to Dashboard
+        </Button>
+      </Box>
+    );
+  }
+
+  if (success) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+          <IconButton onClick={() => navigate('/staff-dashboard')} sx={{ mr: 2 }}>
+            <ArrowBack />
+          </IconButton>
+          <Typography variant="h4">Complete Task</Typography>
+        </Box>
+        <Alert severity="success" sx={{ mb: 2 }}>
+          Task completed successfully! Redirecting to dashboard...
+        </Alert>
       </Box>
     );
   }
 
   if (!assignment || !task) {
     return (
-      <Alert severity="error">
-        Task not found or you don't have permission to access it.
-      </Alert>
+      <Box sx={{ p: 3 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+          <IconButton onClick={() => navigate('/staff-dashboard')} sx={{ mr: 2 }}>
+            <ArrowBack />
+          </IconButton>
+          <Typography variant="h4">Complete Task</Typography>
+        </Box>
+        <Alert severity="error">
+          Task not found
+        </Alert>
+      </Box>
     );
   }
 
   return (
-    <Box>
-      <Typography variant="h4" gutterBottom>
-        Complete Task
-      </Typography>
+    <Box sx={{ p: 3 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+        <IconButton onClick={() => navigate('/staff-dashboard')} sx={{ mr: 2 }}>
+          <ArrowBack />
+        </IconButton>
+        <Typography variant="h4">Complete Task</Typography>
+      </Box>
 
       <Grid container spacing={3}>
         {/* Task Details */}
@@ -182,139 +234,138 @@ const TaskCompletion: React.FC = () => {
               <Typography variant="h6" gutterBottom>
                 Task Details
               </Typography>
-              <Typography variant="h5" gutterBottom>
-                {task.title}
-              </Typography>
-              <Typography variant="body1" color="text.secondary" paragraph>
-                {task.description}
-              </Typography>
-              <Box display="flex" gap={2} flexWrap="wrap">
-                <Typography variant="body2">
-                  <strong>Estimated Time:</strong> {task.estimatedMinutes} minutes
+              
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="h5" fontWeight="bold" gutterBottom>
+                  {task.title}
                 </Typography>
-                <Typography variant="body2">
-                  <strong>Due Date:</strong> {new Date(assignment.dueDate).toLocaleDateString()}
+                <Typography variant="body1" color="text.secondary" paragraph>
+                  {task.description}
+                </Typography>
+              </Box>
+
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+                {task.isHighPriority && (
+                  <Chip
+                    icon={<PriorityHigh />}
+                    label="High Priority"
+                    color="error"
+                    size="small"
+                  />
+                )}
+                <Chip
+                  icon={<AccessTime />}
+                  label={`${task.estimatedMinutes} min estimated`}
+                  color="primary"
+                  size="small"
+                />
+                <Chip
+                  icon={<LocationOn />}
+                  label={outlet?.name || 'Unknown Outlet'}
+                  color="default"
+                  size="small"
+                />
+                <Chip
+                  icon={<Person />}
+                  label={`Assigned by: ${assignedBy?.name || 'Unknown'}`}
+                  color="default"
+                  size="small"
+                />
+              </Box>
+
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="body2" color="text.secondary">
+                  <strong>Due Date:</strong> {assignment.dueDate.toLocaleDateString()}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  <strong>Assigned Date:</strong> {assignment.assignedDate.toLocaleDateString()}
                 </Typography>
               </Box>
             </CardContent>
           </Card>
         </Grid>
 
-        {/* Media Capture */}
+        {/* Completion Form */}
         <Grid item xs={12} md={6}>
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
-                Proof of Completion
-              </Typography>
-              <Typography variant="body2" color="text.secondary" paragraph>
-                Please provide photo or video proof that you have completed this task.
+                Mark as Complete
               </Typography>
 
-              {error && (
-                <Alert severity="error" sx={{ mb: 2 }}>
-                  {error}
-                </Alert>
-              )}
+              <Box sx={{ mb: 3 }}>
+                <TextField
+                  fullWidth
+                  multiline
+                  rows={3}
+                  label="Completion Notes"
+                  placeholder="Add any notes about the task completion..."
+                  value={completionNotes}
+                  onChange={(e) => setCompletionNotes(e.target.value)}
+                />
+              </Box>
 
-              {!capturedMedia ? (
-                <Box>
-                  <Grid container spacing={2}>
-                    <Grid item xs={12} sm={4}>
-                      <Button
-                        variant="outlined"
-                        startIcon={<CameraAlt />}
-                        onClick={capturePhoto}
-                        fullWidth
-                      >
-                        Take Photo
-                      </Button>
-                    </Grid>
-                    <Grid item xs={12} sm={4}>
-                      <Button
-                        variant="outlined"
-                        startIcon={<Videocam />}
-                        onClick={recordVideo}
-                        fullWidth
-                      >
-                        Record Video
-                      </Button>
-                    </Grid>
-                    <Grid item xs={12} sm={4}>
-                      <Button
-                        variant="outlined"
-                        startIcon={<PhotoLibrary />}
-                        onClick={() => fileInputRef.current?.click()}
-                        fullWidth
-                      >
-                        Upload File
-                      </Button>
-                    </Grid>
-                  </Grid>
-
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*,video/*"
-                    onChange={handleFileUpload}
-                    style={{ display: 'none' }}
-                  />
-
-                  {/* Video Preview */}
-                  <Box mt={2}>
-                    <video
-                      ref={videoRef}
-                      style={{ width: '100%', maxHeight: '300px', display: 'none' }}
-                      controls
-                    />
-                    <canvas ref={canvasRef} style={{ display: 'none' }} />
-                    <Button
-                      variant="contained"
-                      onClick={takePhoto}
-                      sx={{ mt: 1 }}
-                      style={{ display: 'none' }}
-                    >
-                      Capture Photo
-                    </Button>
-                  </Box>
-                </Box>
-              ) : (
-                <Box>
-                  <Paper elevation={2} sx={{ p: 2, mb: 2 }}>
-                    {mediaType === 'photo' ? (
-                      <img
-                        src={capturedMedia}
-                        alt="Task completion proof"
-                        style={{ width: '100%', maxHeight: '300px', objectFit: 'contain' }}
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="subtitle2" gutterBottom>
+                  Upload Proof (Photos/Videos)
+                </Typography>
+                <input
+                  accept="image/*,video/*"
+                  style={{ display: 'none' }}
+                  id="proof-upload"
+                  multiple
+                  type="file"
+                  onChange={handleFileUpload}
+                />
+                <Button
+                  variant="outlined"
+                  startIcon={<CameraAlt />}
+                  onClick={handleCameraUpload}
+                  sx={{ mr: 2 }}
+                >
+                  {isMobile() ? 'Take Photo/Video' : 'Choose Files'}
+                </Button>
+                {isMobile() && (
+                  <Button
+                    variant="outlined"
+                    startIcon={<Upload />}
+                    onClick={() => {
+                      const input = document.getElementById('proof-upload') as HTMLInputElement;
+                      if (input) {
+                        input.removeAttribute('capture'); // Remove capture to open gallery
+                        input.click();
+                      }
+                    }}
+                  >
+                    Choose from Gallery
+                  </Button>
+                )}
+                
+                {proofFiles.length > 0 && (
+                  <Box sx={{ mt: 2 }}>
+                    {proofFiles.map((file, index) => (
+                      <Chip
+                        key={index}
+                        label={file.name}
+                        onDelete={() => removeFile(index)}
+                        sx={{ mr: 1, mb: 1 }}
                       />
-                    ) : (
-                      <video
-                        src={capturedMedia}
-                        controls
-                        style={{ width: '100%', maxHeight: '300px' }}
-                      />
-                    )}
-                  </Paper>
-                  
-                  <Box display="flex" gap={2}>
-                    <Button
-                      variant="contained"
-                      startIcon={<CheckCircle />}
-                      onClick={handleSubmit}
-                      disabled={submitting}
-                    >
-                      {submitting ? 'Submitting...' : 'Complete Task'}
-                    </Button>
-                    <Button
-                      variant="outlined"
-                      startIcon={<Delete />}
-                      onClick={removeMedia}
-                    >
-                      Remove
-                    </Button>
+                    ))}
                   </Box>
-                </Box>
-              )}
+                )}
+              </Box>
+
+              <Button
+                fullWidth
+                variant="contained"
+                size="large"
+                startIcon={submitting ? <CircularProgress size={20} /> : <CheckCircle />}
+                onClick={handleSubmit}
+                disabled={submitting}
+                sx={{ mt: 2 }}
+              >
+                {submitting ? 'Completing...' : 'Mark as Complete'}
+              </Button>
             </CardContent>
           </Card>
         </Grid>

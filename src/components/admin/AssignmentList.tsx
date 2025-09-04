@@ -589,12 +589,28 @@ const AssignmentList: React.FC = () => {
                       {new Date(assignment.dueDate).toLocaleDateString()}
                     </TableCell>
                     <TableCell>
-                      <Chip
-                        icon={getStatusIcon(assignment)}
-                        label={getDisplayStatus(assignment)}
-                        color={getStatusColor(assignment) as any}
-                        size="small"
-                      />
+                      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <Chip
+                          icon={getStatusIcon(assignment)}
+                          label={getDisplayStatus(assignment)}
+                          color={getStatusColor(assignment) as any}
+                          size="small"
+                        />
+                        {assignment.status === 'reschedule_requested' && (
+                          <Chip
+                            icon={<Schedule />}
+                            label="Reschedule Requested"
+                            size="small"
+                            variant="filled"
+                            color="info"
+                            sx={{
+                              backgroundColor: '#e3f2fd',
+                              color: '#1976d2',
+                              fontWeight: 600,
+                            }}
+                          />
+                        )}
+                      </Box>
                     </TableCell>
                     <TableCell>
                       {assignment.completedAt 
@@ -729,12 +745,28 @@ const AssignmentList: React.FC = () => {
                 <Typography variant="h6">
                   {getTaskTitle(assignmentToView.taskId)}
                 </Typography>
-                <Chip
-                  icon={getStatusIcon(assignmentToView)}
-                  label={getDisplayStatus(assignmentToView)}
-                  color={getStatusColor(assignmentToView) as any}
-                  size="small"
-                />
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                  <Chip
+                    icon={getStatusIcon(assignmentToView)}
+                    label={getDisplayStatus(assignmentToView)}
+                    color={getStatusColor(assignmentToView) as any}
+                    size="small"
+                  />
+                  {assignmentToView.status === 'reschedule_requested' && (
+                    <Chip
+                      icon={<Schedule />}
+                      label="Reschedule Requested"
+                      size="small"
+                      variant="filled"
+                      color="info"
+                      sx={{
+                        backgroundColor: '#e3f2fd',
+                        color: '#1976d2',
+                        fontWeight: 600,
+                      }}
+                    />
+                  )}
+                </Box>
               </Box>
 
               <Box display="flex" alignItems="center" mb={2}>
@@ -803,6 +835,37 @@ const AssignmentList: React.FC = () => {
                   <Typography variant="body1">
                     {assignmentToView.completionProof}
                   </Typography>
+                </Box>
+              )}
+
+              {assignmentToView.status === 'reschedule_requested' && (
+                <Box mb={2}>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Reschedule Request
+                  </Typography>
+                  <Box sx={{ 
+                    p: 2, 
+                    backgroundColor: '#e3f2fd', 
+                    borderRadius: 2, 
+                    border: '1px solid #bbdefb' 
+                  }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                      <Schedule color="info" />
+                      <Typography variant="subtitle2" color="info.main" fontWeight={600}>
+                        Reschedule Requested
+                      </Typography>
+                    </Box>
+                    {assignmentToView.rescheduleReason && (
+                      <Typography variant="body2" color="text.primary">
+                        <strong>Reason:</strong> {assignmentToView.rescheduleReason}
+                      </Typography>
+                    )}
+                    {assignmentToView.rescheduleRequestedAt && (
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                        Requested on: {new Date(assignmentToView.rescheduleRequestedAt).toLocaleString()}
+                      </Typography>
+                    )}
+                  </Box>
                 </Box>
               )}
 

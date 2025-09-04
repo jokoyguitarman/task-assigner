@@ -21,6 +21,7 @@ import InvitationManagement from './components/admin/InvitationManagement';
 import StaffDashboard from './components/staff/StaffDashboard';
 import TaskCompletion from './components/staff/TaskCompletion';
 import TeamScheduler from './components/staff/TeamScheduler';
+import PerformanceTracker from './components/staff/PerformanceTracker';
 
 // Create a modern theme
 const theme = createTheme({
@@ -203,6 +204,7 @@ const StaffRoutes: React.FC = () => (
   <Routes>
     <Route path="/dashboard" element={<StaffDashboard />} />
     <Route path="/schedules" element={<TeamScheduler />} />
+    <Route path="/performance" element={<PerformanceTracker />} />
     <Route path="/tasks/:assignmentId/complete" element={<TaskCompletion />} />
     <Route path="*" element={<Navigate to="/dashboard" replace />} />
   </Routes>

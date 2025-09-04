@@ -1,4 +1,4 @@
-import React, { ReactNode } from 'react';
+import React, { ReactNode, useEffect, useRef } from 'react';
 import {
   AppBar,
   Toolbar,
@@ -31,8 +31,10 @@ import {
   Assessment,
   Schedule,
 } from '@mui/icons-material';
+import NotificationBell from '../common/NotificationBell';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { realtimeService } from '../../services/realtimeService';
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -45,6 +47,20 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [mobileOpen, setMobileOpen] = React.useState(false);
+  const realtimeInitialized = useRef(false);
+
+  // Initialize real-time service
+  useEffect(() => {
+    if (user && !realtimeInitialized.current) {
+      console.log('🔔 Initializing real-time service for user:', user.id);
+      realtimeService.initialize();
+      realtimeInitialized.current = true;
+    } else if (!user && realtimeInitialized.current) {
+      console.log('🔔 Cleaning up real-time service (no user)');
+      realtimeService.cleanup();
+      realtimeInitialized.current = false;
+    }
+  }, [user]);
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -69,12 +85,17 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         path: '/tasks',
       },
     ] : []),
-    // Show Schedules menu for staff and outlet users
+    // Show Schedules and Performance menus for staff and outlet users
     ...(user?.role === 'staff' || user?.role === 'outlet' ? [
       {
         text: 'Team Schedules',
         icon: <Schedule />,
         path: '/schedules',
+      },
+      {
+        text: 'Performance',
+        icon: <Assessment />,
+        path: '/performance',
       },
     ] : []),
     ...(user?.role === 'admin' ? [
@@ -310,6 +331,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
             </Box>
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <NotificationBell />
             <Chip
               icon={user?.role === 'admin' ? <AdminPanelSettings /> : <Person />}
               label={user?.role === 'admin' ? 'Administrator' : 'Staff Member'}

@@ -61,7 +61,7 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
   const [availableStaff, setAvailableStaff] = useState<StaffProfile[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  const { control, handleSubmit, watch, formState: { errors } } = useForm<AssignmentFormData>({
+  const { control, handleSubmit, watch, reset, formState: { errors } } = useForm<AssignmentFormData>({
     defaultValues: {
       taskId: '',
       staffId: '',
@@ -79,6 +79,13 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
   useEffect(() => {
     loadData();
   }, []);
+
+  // Load assignment data when editing
+  useEffect(() => {
+    if (assignmentId) {
+      loadAssignmentData();
+    }
+  }, [assignmentId]);
 
   const loadData = async () => {
     try {
@@ -102,6 +109,31 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
       console.error('Error loading data:', error);
     } finally {
       setLoadingData(false);
+    }
+  };
+
+  const loadAssignmentData = async () => {
+    if (!assignmentId) return;
+    
+    try {
+      setLoading(true);
+      const assignment = await assignmentsAPI.getById(assignmentId);
+      
+      // Reset form with assignment data
+      reset({
+        taskId: assignment.taskId,
+        staffId: assignment.staffId || '',
+        dueDate: new Date(assignment.dueDate),
+        dueTime: '', // dueTime is not stored in TaskAssignment, so we'll leave it empty
+        outletId: assignment.outletId || '',
+      });
+      
+      console.log('📝 Assignment data loaded for editing:', assignment);
+    } catch (error) {
+      console.error('Error loading assignment data:', error);
+      setError('Failed to load assignment data');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -178,18 +210,25 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
     
     setLoading(true);
     try {
+      // Clean up empty strings to undefined for UUID fields
+      const cleanedData = {
+        ...data,
+        staffId: data.staffId && data.staffId.trim() !== '' ? data.staffId : undefined,
+        outletId: selectedOutletId && selectedOutletId.trim() !== '' ? selectedOutletId : undefined,
+      };
+      
       if (assignmentId) {
         console.log('📝 Updating existing assignment...');
-        await assignmentsAPI.update(assignmentId, data);
+        await assignmentsAPI.update(assignmentId, cleanedData);
         console.log('✅ Assignment updated successfully');
       } else {
         console.log('📝 Creating new assignment...');
         await assignmentsAPI.create({
-          taskId: data.taskId,
-          staffId: data.staffId || undefined,
+          taskId: cleanedData.taskId,
+          staffId: cleanedData.staffId,
           assignedDate: new Date(),
-          dueDate: data.dueDate,
-          outletId: selectedOutletId || undefined,
+          dueDate: cleanedData.dueDate,
+          outletId: cleanedData.outletId,
           status: 'pending',
         });
         console.log('✅ Assignment created successfully');
@@ -205,7 +244,7 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
 
   const selectedTask = tasks.find(task => task.id === selectedTaskId);
 
-  if (loadingData) {
+  if (loadingData || loading) {
     return <Typography>Loading...</Typography>;
   }
 

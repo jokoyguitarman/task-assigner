@@ -3,6 +3,9 @@ export interface User {
   email: string;
   name: string;
   role: 'admin' | 'staff' | 'outlet';
+  currentStreak: number;
+  longestStreak: number;
+  lastClearBoardDate?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -28,12 +31,23 @@ export interface TaskAssignment {
   assignedDate: Date;
   dueDate: Date;
   outletId?: string;
-  status: 'pending' | 'completed' | 'overdue';
+  status: 'pending' | 'completed' | 'overdue' | 'reschedule_requested';
   completedAt?: Date;
   completionProof?: string; // URL to photo/video
   minutesDeducted?: number;
+  // Reschedule request fields
+  rescheduleRequestedAt?: Date;
+  rescheduleReason?: string;
+  rescheduleRequestedBy?: string; // Staff member who requested reschedule
+  rescheduleApprovedAt?: Date;
+  rescheduleApprovedBy?: string; // Admin who approved reschedule
+  rescheduleNewDueDate?: Date;
   createdAt: Date;
   updatedAt: Date;
+  // Populated fields
+  task?: Task;
+  staff?: User;
+  outlet?: Outlet;
 }
 
 export interface StaffWorkingHours {

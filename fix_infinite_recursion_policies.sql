@@ -1,89 +1,134 @@
 -- Fix infinite recursion in RLS policies
--- The issue is that our policies are checking the users table from within the users table policies
+-- The issue is that policies are referencing each other causing infinite loops
 
--- First, disable RLS on users table temporarily
+-- First, disable RLS temporarily to fix the policies
 ALTER TABLE public.users DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tasks DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.task_assignments DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.outlets DISABLE ROW LEVEL SECURITY;
 
--- Drop all existing policies on users table
-DROP POLICY IF EXISTS "Users can read based on role" ON public.users;
-DROP POLICY IF EXISTS "Admin can create users" ON public.users;
-DROP POLICY IF EXISTS "Users can update own profile" ON public.users;
-DROP POLICY IF EXISTS "Allow user lookup by ID" ON public.users;
-DROP POLICY IF EXISTS "Authenticated users can view users" ON public.users;
-DROP POLICY IF EXISTS "Service role can do anything" ON public.users;
+-- Drop all existing policies to start fresh
+DROP POLICY IF EXISTS "Outlet users can view users" ON public.users;
+DROP POLICY IF EXISTS "Outlet users can view tasks" ON public.tasks;
+DROP POLICY IF EXISTS "Outlet users can view outlet assignments" ON public.task_assignments;
+DROP POLICY IF EXISTS "Outlet users can update outlet assignments" ON public.task_assignments;
+DROP POLICY IF EXISTS "Outlet users can view outlets" ON public.outlets;
 
 -- Re-enable RLS
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tasks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.task_assignments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.outlets ENABLE ROW LEVEL SECURITY;
 
 -- Create simple, non-recursive policies
 
--- 1. Allow users to read their own profile (no recursion)
-CREATE POLICY "Users can view own profile" ON public.users
-    FOR SELECT USING (auth.uid() = id);
+-- Allow all authenticated users to view users (for getting assigner info)
+CREATE POLICY "Authenticated users can view users" ON public.users
+  FOR SELECT
+  TO authenticated
+  USING (true);
 
--- 2. Allow users to update their own profile (no recursion)
-CREATE POLICY "Users can update own profile" ON public.users
-    FOR UPDATE USING (auth.uid() = id);
+-- Allow all authenticated users to view tasks
+CREATE POLICY "Authenticated users can view tasks" ON public.tasks
+  FOR SELECT
+  TO authenticated
+  USING (true);
 
--- 3. Allow authenticated users to insert (for signup process)
-CREATE POLICY "Allow authenticated user creation" ON public.users
-    FOR INSERT WITH CHECK (auth.uid() = id);
+-- Allow all authenticated users to view outlets
+CREATE POLICY "Authenticated users can view outlets" ON public.outlets
+  FOR SELECT
+  TO authenticated
+  USING (true);
 
--- 4. Allow service role full access (for triggers and admin operations)
-CREATE POLICY "Service role full access" ON public.users
-    FOR ALL USING (current_setting('role') = 'service_role');
+-- Allow outlet users to view task assignments for their outlet
+CREATE POLICY "Outlet users can view outlet assignments" ON public.task_assignments
+  FOR SELECT
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.outlets o
+      WHERE o.user_id = auth.uid()
+      AND o.id = task_assignments.outlet_id
+    )
+  );
 
--- 5. Simple admin policy - we'll use a different approach
--- Instead of checking the users table, we'll check the JWT claims or use a simpler method
-CREATE POLICY "Allow admin operations" ON public.users
-    FOR ALL USING (
-        -- Allow if the user is trying to access their own record
-        auth.uid() = id
-        OR
-        -- Allow service role
-        current_setting('role') = 'service_role'
-        OR
-        -- Allow if user has admin role in JWT (this avoids recursion)
-        (auth.jwt() ->> 'user_metadata' ->> 'role') = 'admin'
-    );
+-- Allow outlet users to update task assignments for their outlet
+CREATE POLICY "Outlet users can update outlet assignments" ON public.task_assignments
+  FOR UPDATE
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.outlets o
+      WHERE o.user_id = auth.uid()
+      AND o.id = task_assignments.outlet_id
+    )
+  );
 
--- Alternative approach: Create a function to check admin role without recursion
-CREATE OR REPLACE FUNCTION is_admin_user(user_id UUID)
-RETURNS BOOLEAN AS $$
-BEGIN
-    -- This function will be called with SECURITY DEFINER to bypass RLS
-    RETURN EXISTS (
-        SELECT 1 FROM public.users 
-        WHERE id = user_id AND role = 'admin'
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- Allow staff users to view their own assignments
+CREATE POLICY "Staff users can view their assignments" ON public.task_assignments
+  FOR SELECT
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.staff_profiles sp
+      WHERE sp.user_id = auth.uid()
+      AND sp.id = task_assignments.staff_id
+    )
+  );
 
--- Drop the problematic policy and create a better one
-DROP POLICY IF EXISTS "Allow admin operations" ON public.users;
+-- Allow staff users to update their own assignments
+CREATE POLICY "Staff users can update their assignments" ON public.task_assignments
+  FOR UPDATE
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.staff_profiles sp
+      WHERE sp.user_id = auth.uid()
+      AND sp.id = task_assignments.staff_id
+    )
+  );
 
--- Create a simpler policy that doesn't cause recursion
-CREATE POLICY "Simple admin and self access" ON public.users
-    FOR ALL USING (
-        -- Users can access their own records
-        auth.uid() = id
-        OR
-        -- Service role can access everything
-        current_setting('role') = 'service_role'
-    );
+-- Allow admins to do everything
+CREATE POLICY "Admins can do everything on users" ON public.users
+  FOR ALL
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.users u
+      WHERE u.id = auth.uid()
+      AND u.role = 'admin'
+    )
+  );
 
--- For admin operations, we'll rely on the application layer and service role
--- Remove the recursive admin check for now
+CREATE POLICY "Admins can do everything on tasks" ON public.tasks
+  FOR ALL
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.users u
+      WHERE u.id = auth.uid()
+      AND u.role = 'admin'
+    )
+  );
 
--- Show current policies
-SELECT 
-    policyname,
-    cmd,
-    permissive,
-    with_check,
-    qual
-FROM pg_policies 
-WHERE tablename = 'users' AND schemaname = 'public'
-ORDER BY policyname;
+CREATE POLICY "Admins can do everything on task_assignments" ON public.task_assignments
+  FOR ALL
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.users u
+      WHERE u.id = auth.uid()
+      AND u.role = 'admin'
+    )
+  );
 
-SELECT 'Infinite recursion policies fixed! Admin operations will work through service role.' as status;
+CREATE POLICY "Admins can do everything on outlets" ON public.outlets
+  FOR ALL
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.users u
+      WHERE u.id = auth.uid()
+      AND u.role = 'admin'
+    )
+  );

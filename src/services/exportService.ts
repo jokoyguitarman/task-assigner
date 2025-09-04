@@ -15,9 +15,7 @@ export interface TaskCompletionReport {
   assignedAt: string;
   dueDate: string;
   completedAt?: string;
-  status: 'pending' | 'completed' | 'overdue';
-  estimatedMinutes: number;
-  actualMinutes?: number;
+  status: 'pending' | 'completed' | 'overdue' | 'reschedule_requested';
   proofFiles?: string[];
 }
 
@@ -152,8 +150,8 @@ class ExportService {
       yPosition += 20;
 
       // Table headers
-      const headers = ['Task', 'Assigned To', 'Due Date', 'Status', 'Est. Time', 'Actual Time'];
-      const colWidths = [50, 30, 25, 20, 20, 20];
+      const headers = ['Task', 'Assigned To', 'Due Date', 'Status', 'Proof Files'];
+      const colWidths = [50, 30, 25, 20, 20];
       const startX = 10;
 
       pdf.setFontSize(8);
@@ -179,8 +177,7 @@ class ExportService {
           row.assignedTo.substring(0, 20),
           new Date(row.dueDate).toLocaleDateString(),
           row.status,
-          `${row.estimatedMinutes}m`,
-          row.actualMinutes ? `${row.actualMinutes}m` : '-',
+          row.proofFiles && row.proofFiles.length > 0 ? `${row.proofFiles.length} files` : '-',
         ];
 
         xPosition = startX;

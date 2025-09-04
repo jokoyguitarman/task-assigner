@@ -168,8 +168,6 @@ const TaskCompletionReports: React.FC = () => {
           dueDate: assignment.dueDate.toISOString(),
           completedAt: assignment.completedAt?.toISOString(),
           status: assignment.status,
-          estimatedMinutes: task?.estimatedMinutes || 0,
-          actualMinutes: assignment.minutesDeducted,
           proofFiles: assignment.completionProof ? [assignment.completionProof] : [],
         };
       });
@@ -490,8 +488,6 @@ const TaskCompletionReports: React.FC = () => {
                         <TableCell><strong>Assigned To</strong></TableCell>
                         <TableCell><strong>Due Date</strong></TableCell>
                         <TableCell><strong>Status</strong></TableCell>
-                        <TableCell><strong>Est. Time</strong></TableCell>
-                        <TableCell><strong>Actual Time</strong></TableCell>
                         <TableCell><strong>Proof Files</strong></TableCell>
                       </TableRow>
                     </TableHead>
@@ -520,12 +516,6 @@ const TaskCompletionReports: React.FC = () => {
                                 color={getStatusColor(row.status) as any}
                                 size="small"
                               />
-                            </TableCell>
-                            <TableCell>
-                              {row.estimatedMinutes}m
-                            </TableCell>
-                            <TableCell>
-                              {row.actualMinutes ? `${row.actualMinutes}m` : '-'}
                             </TableCell>
                             <TableCell>
                               {row.proofFiles && row.proofFiles.length > 0 ? (
