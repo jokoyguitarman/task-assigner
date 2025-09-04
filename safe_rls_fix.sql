@@ -75,3 +75,6 @@ CREATE POLICY "Staff can view own profile" ON public.staff_profiles
 
 -- Show success message
 SELECT 'RLS policies updated successfully!' as status;
+
+
+

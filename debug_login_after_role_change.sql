@@ -21,3 +21,6 @@ SELECT schemaname, tablename, policyname, permissive, roles, cmd, qual
 FROM pg_policies 
 WHERE tablename IN ('users', 'outlets') 
 AND schemaname = 'public';
+
+
+

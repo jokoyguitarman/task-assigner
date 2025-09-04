@@ -7,3 +7,6 @@ CREATE INDEX IF NOT EXISTS idx_outlets_user_id ON public.outlets(user_id);
 
 -- Add comment
 COMMENT ON COLUMN public.outlets.user_id IS 'Link to auth.users for outlet login via invitation system';
+
+
+

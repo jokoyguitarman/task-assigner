@@ -68,3 +68,6 @@ CREATE POLICY "Staff can view own profile" ON public.staff_profiles
             WHERE id = auth.uid() AND role = 'admin'
         )
     );
+
+
+

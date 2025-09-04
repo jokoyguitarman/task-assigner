@@ -11,3 +11,6 @@ AND schemaname = 'public';
 -- Make sure anonymous users can insert into users table for signup
 -- (This should already exist from our previous fixes)
 SELECT 'RLS should allow anonymous signup - checking...' as info;
+
+
+

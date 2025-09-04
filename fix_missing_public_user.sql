@@ -29,3 +29,6 @@ SELECT 'User created in public.users:' as info;
 SELECT id, email, name, role, created_at 
 FROM public.users 
 WHERE email = 'jokoyguitarman@yahoo.com';
+
+
+

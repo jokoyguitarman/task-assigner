@@ -44,6 +44,13 @@ const TeamScheduler: React.FC = () => {
         setStaffProfiles(staffData);
         setMonthlySchedules(schedulesData);
         setOutlets(outletsData);
+        
+        // Debug logging for outlets
+        console.log('🔍 TeamScheduler - Loaded outlets:', outletsData.map(o => ({
+          id: o.id,
+          name: o.name,
+          index: outletsData.indexOf(o)
+        })));
       } catch (error) {
         console.error('Error loading team scheduler data:', error);
       } finally {
@@ -94,12 +101,40 @@ const TeamScheduler: React.FC = () => {
 
   const getOutletColor = (outletId?: string): string => {
     if (!outletId) return '#9e9e9e';
+    
+    // Safety check: if outlets haven't loaded yet, return default color
+    if (!outlets || outlets.length === 0) {
+      console.log(`🎨 TeamScheduler - Outlets not loaded yet, using default color for ${outletId}`);
+      return '#9e9e9e';
+    }
+    
     const outlet = outlets.find(o => o.id === outletId);
     if (!outlet) return '#9e9e9e';
     
-    const colors = ['#2196f3', '#4caf50', '#ff9800', '#f44336', '#9c27b0', '#00bcd4'];
-    const index = outlets.indexOf(outlet) % colors.length;
-    return colors[index];
+    // Use consistent color palette with MonthlyScheduler
+    const colors = [
+      '#1976d2', // Blue
+      '#388e3c', // Green  
+      '#f57c00', // Orange
+      '#7b1fa2', // Purple
+      '#c62828', // Red
+      '#00796b', // Teal
+      '#5d4037', // Brown
+      '#455a64', // Blue Grey
+      '#e91e63', // Pink
+      '#ff5722', // Deep Orange
+      '#607d8b', // Blue Grey
+      '#795548'  // Brown
+    ];
+    
+    // Use findIndex for consistent indexing across components
+    const index = outlets.findIndex(o => o.id === outletId);
+    const color = index >= 0 ? colors[index % colors.length] : '#9e9e9e';
+    
+    // Debug logging to help identify color assignment issues
+    console.log(`🎨 TeamScheduler - Color for outlet ${outlet.name} (${outletId}): ${color} (index: ${index})`);
+    
+    return color;
   };
 
   const displayTime12Hour = (time?: string): string => {
@@ -234,6 +269,17 @@ const TeamScheduler: React.FC = () => {
                     {/* Schedule Days */}
                     {getWeekDays().map((date, dayIndex) => {
                       const schedule = getStaffScheduleForDate(staff.id, date);
+                      
+                      // Debug logging for schedule data
+                      if (schedule && schedule.outletId) {
+                        console.log(`🔍 TeamScheduler - Schedule for ${staff.employeeId} on ${date.toDateString()}:`, {
+                          outletId: schedule.outletId,
+                          outletName: getOutletName(schedule.outletId),
+                          isDayOff: schedule.isDayOff,
+                          timeIn: schedule.timeIn,
+                          timeOut: schedule.timeOut
+                        });
+                      }
                       
                       return (
                         <Box key={dayIndex} sx={{ flex: 1, p: 2, textAlign: 'center', borderLeft: '1px solid #f0f0f0' }}>

@@ -39,3 +39,6 @@ FROM pg_policies
 WHERE tablename = 'tasks' 
 AND schemaname = 'public'
 ORDER BY policyname;
+
+
+

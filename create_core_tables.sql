@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS public.tasks (
     is_recurring BOOLEAN DEFAULT false,
     recurring_pattern VARCHAR(20) CHECK (recurring_pattern IN ('daily', 'weekly', 'monthly')),
     scheduled_date DATE,
+    is_high_priority BOOLEAN DEFAULT false,
     created_by UUID NOT NULL REFERENCES public.users(id),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

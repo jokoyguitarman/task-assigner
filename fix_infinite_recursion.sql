@@ -60,3 +60,6 @@ CREATE POLICY "Staff can view own profile" ON public.staff_profiles
 
 -- Show success message
 SELECT 'RLS policies fixed - infinite recursion resolved!' as status;
+
+
+

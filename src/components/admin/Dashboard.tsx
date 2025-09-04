@@ -17,6 +17,10 @@ import {
   Slide,
   Paper,
   Divider,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import {
   Assignment,
@@ -30,29 +34,79 @@ import {
   TaskAlt,
   Dashboard as DashboardIcon,
   Email as EmailIcon,
+  PriorityHigh,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { TaskAssignment, Task } from '../../types';
-import { assignmentsAPI, tasksAPI } from '../../services/supabaseService';
+import { TaskAssignment, Task, User, StaffProfile, Outlet } from '../../types';
+import { assignmentsAPI, tasksAPI, usersAPI, staffProfilesAPI, outletsAPI } from '../../services/supabaseService';
 
 const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
   const [assignments, setAssignments] = useState<TaskAssignment[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [staff, setStaff] = useState<User[]>([]);
+  const [staffProfiles, setStaffProfiles] = useState<StaffProfile[]>([]);
+  const [outlets, setOutlets] = useState<Outlet[]>([]);
   const [loading, setLoading] = useState(true);
+  const [assignmentDetailsOpen, setAssignmentDetailsOpen] = useState(false);
+  const [selectedAssignmentForDetails, setSelectedAssignmentForDetails] = useState<TaskAssignment | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
 
   useEffect(() => {
-    loadData();
+    const initializeDashboard = async () => {
+      await loadData();
+      await updateOverdueAssignments();
+    };
+    initializeDashboard();
   }, []);
+
+  // Periodic check for overdue assignments (every 5 minutes)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      updateOverdueAssignments();
+    }, 5 * 60 * 1000); // 5 minutes
+
+    return () => clearInterval(interval);
+  }, [assignments]);
+
+  const updateOverdueAssignments = async () => {
+    try {
+      const today = new Date();
+      const overdueAssignments = assignments.filter(assignment => {
+        const dueDate = new Date(assignment.dueDate);
+        return assignment.status === 'pending' && today > dueDate;
+      });
+
+      // Update overdue assignments in the database
+      for (const assignment of overdueAssignments) {
+        await assignmentsAPI.update(assignment.id, { status: 'overdue' });
+      }
+
+      if (overdueAssignments.length > 0) {
+        console.log(`Updated ${overdueAssignments.length} assignments to overdue status`);
+        // Reload data to reflect changes
+        await loadData();
+      }
+    } catch (error) {
+      console.error('Error updating overdue assignments:', error);
+    }
+  };
 
   const loadData = async () => {
     try {
-      const [assignmentsData, tasksData] = await Promise.all([
+      setLoading(true);
+      const [assignmentsData, tasksData, staffData, staffProfilesData, outletsData] = await Promise.all([
         assignmentsAPI.getAll(),
         tasksAPI.getAll(),
+        usersAPI.getAll(),
+        staffProfilesAPI.getAll(),
+        outletsAPI.getAll(),
       ]);
       setAssignments(assignmentsData);
       setTasks(tasksData);
+      setStaff(staffData);
+      setStaffProfiles(staffProfilesData);
+      setOutlets(outletsData);
     } catch (error) {
       console.error('Error loading dashboard data:', error);
     } finally {
@@ -60,35 +114,126 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return 'success';
-      case 'overdue':
-        return 'error';
-      default:
-        return 'warning';
-    }
+  const getStatusColor = (assignment: TaskAssignment) => {
+    if (assignment.status === 'completed') return 'success';
+    if (assignment.status === 'overdue' || isAssignmentOverdue(assignment)) return 'error';
+    return 'warning';
   };
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return <CheckCircle />;
-      case 'overdue':
-        return <Warning />;
-      default:
-        return <Schedule />;
-    }
+  const getStatusIcon = (assignment: TaskAssignment) => {
+    if (assignment.status === 'completed') return <CheckCircle />;
+    if (assignment.status === 'overdue' || isAssignmentOverdue(assignment)) return <Warning />;
+    return <Schedule />;
   };
 
-  const pendingAssignments = assignments.filter(a => a.status === 'pending');
-  const overdueAssignments = assignments.filter(a => a.status === 'overdue');
+  const getDisplayStatus = (assignment: TaskAssignment) => {
+    if (assignment.status === 'completed') return 'completed';
+    if (assignment.status === 'overdue' || isAssignmentOverdue(assignment)) return 'overdue';
+    return 'pending';
+  };
+
+  const getTaskTitle = (taskId: string) => {
+    const task = tasks.find(t => t.id === taskId);
+    return task ? task.title : 'Unknown Task';
+  };
+
+  const getTaskDescription = (taskId: string) => {
+    const task = tasks.find(t => t.id === taskId);
+    return task ? task.description : 'No description available';
+  };
+
+  const getTaskPriority = (taskId: string) => {
+    const task = tasks.find(t => t.id === taskId);
+    return task ? task.isHighPriority : false;
+  };
+
+  const getStaffName = (staffId?: string) => {
+    if (!staffId) return 'Unassigned';
+    const staffProfile = staffProfiles.find(sp => sp.id === staffId);
+    const user = staffProfile ? staff.find(u => u.id === staffProfile.userId) : null;
+    return user?.name || staffProfile?.user?.name || 'Unknown Staff';
+  };
+
+  const getStaffEmail = (staffId?: string) => {
+    if (!staffId) return 'Available for self-assignment';
+    const staffProfile = staffProfiles.find(sp => sp.id === staffId);
+    const user = staffProfile ? staff.find(u => u.id === staffProfile.userId) : null;
+    return user?.email || staffProfile?.user?.email || '';
+  };
+
+  const getOutletName = (outletId?: string) => {
+    if (!outletId) return 'No specific outlet';
+    const outlet = outlets.find(o => o.id === outletId);
+    return outlet?.name || 'Unknown Outlet';
+  };
+
+  const handleAssignmentClick = (assignment: TaskAssignment) => {
+    setSelectedAssignmentForDetails(assignment);
+    setAssignmentDetailsOpen(true);
+  };
+
+  const handleAssignmentDetailsClose = () => {
+    setAssignmentDetailsOpen(false);
+    setSelectedAssignmentForDetails(null);
+  };
+
+  const handleStatusFilter = (status: string | null) => {
+    setStatusFilter(status);
+  };
+
+  const handleClearFilter = () => {
+    setStatusFilter(null);
+  };
+
+  // Helper function to check if an assignment is overdue
+  const isAssignmentOverdue = (assignment: TaskAssignment) => {
+    const today = new Date();
+    const dueDate = new Date(assignment.dueDate);
+    return assignment.status === 'pending' && today > dueDate;
+  };
+
+  const pendingAssignments = assignments.filter(a => a.status === 'pending' && !isAssignmentOverdue(a));
+  const overdueAssignments = assignments.filter(a => a.status === 'overdue' || isAssignmentOverdue(a));
   const completedToday = assignments.filter(a => 
     a.status === 'completed' && 
     a.completedAt && 
     new Date(a.completedAt).toDateString() === new Date().toDateString()
   );
+
+  // Priority tasks (all high priority tasks, not just today)
+  const priorityTasksToday = assignments.filter(a => {
+    const task = tasks.find(t => t.id === a.taskId);
+    return task?.isHighPriority;
+  });
+
+  // Debug logging
+  console.log('Dashboard Debug:', {
+    totalAssignments: assignments.length,
+    totalTasks: tasks.length,
+    priorityTasks: priorityTasksToday.length,
+    tasksWithPriority: tasks.filter(t => t.isHighPriority).length,
+    assignmentsWithPriorityTasks: assignments.filter(a => {
+      const task = tasks.find(t => t.id === a.taskId);
+      return task?.isHighPriority;
+    }).length,
+    overdueAssignments: overdueAssignments.length,
+    pendingAssignments: pendingAssignments.length,
+    overdueByDate: assignments.filter(a => isAssignmentOverdue(a)).length
+  });
+
+  // Filtered assignments based on status filter
+  const filteredAssignments = statusFilter 
+    ? statusFilter === 'priority' 
+      ? assignments.filter(a => {
+          const task = tasks.find(t => t.id === a.taskId);
+          return task?.isHighPriority;
+        })
+      : statusFilter === 'overdue'
+      ? assignments.filter(a => a.status === 'overdue' || isAssignmentOverdue(a))
+      : statusFilter === 'pending'
+      ? assignments.filter(a => a.status === 'pending' && !isAssignmentOverdue(a))
+      : assignments.filter(a => a.status === statusFilter)
+    : assignments;
 
   if (loading) {
     return (
@@ -122,9 +267,9 @@ const AdminDashboard: React.FC = () => {
         </Box>
       </Fade>
 
-      <Grid container spacing={3}>
+      <Grid container spacing={2}>
         {/* Stats Cards */}
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item xs={12} sm={6} md={2.4}>
           <Slide direction="up" in timeout={800}>
             <Card
               sx={{
@@ -132,6 +277,12 @@ const AdminDashboard: React.FC = () => {
                 color: 'white',
                 position: 'relative',
                 overflow: 'hidden',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: '0 8px 25px rgba(99, 102, 241, 0.3)',
+                },
                 '&::before': {
                   content: '""',
                   position: 'absolute',
@@ -144,6 +295,7 @@ const AdminDashboard: React.FC = () => {
                   transform: 'translate(30px, -30px)',
                 },
               }}
+              onClick={() => handleClearFilter()}
             >
               <CardContent>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -164,7 +316,7 @@ const AdminDashboard: React.FC = () => {
           </Slide>
         </Grid>
 
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item xs={12} sm={6} md={2.4}>
           <Slide direction="up" in timeout={1000}>
             <Card
               sx={{
@@ -172,6 +324,12 @@ const AdminDashboard: React.FC = () => {
                 color: 'white',
                 position: 'relative',
                 overflow: 'hidden',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: '0 8px 25px rgba(245, 158, 11, 0.3)',
+                },
                 '&::before': {
                   content: '""',
                   position: 'absolute',
@@ -184,6 +342,7 @@ const AdminDashboard: React.FC = () => {
                   transform: 'translate(30px, -30px)',
                 },
               }}
+              onClick={() => handleStatusFilter('pending')}
             >
               <CardContent>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -204,7 +363,7 @@ const AdminDashboard: React.FC = () => {
           </Slide>
         </Grid>
 
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item xs={12} sm={6} md={2.4}>
           <Slide direction="up" in timeout={1200}>
             <Card
               sx={{
@@ -212,6 +371,12 @@ const AdminDashboard: React.FC = () => {
                 color: 'white',
                 position: 'relative',
                 overflow: 'hidden',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: '0 8px 25px rgba(239, 68, 68, 0.3)',
+                },
                 '&::before': {
                   content: '""',
                   position: 'absolute',
@@ -224,6 +389,7 @@ const AdminDashboard: React.FC = () => {
                   transform: 'translate(30px, -30px)',
                 },
               }}
+              onClick={() => handleStatusFilter('overdue')}
             >
               <CardContent>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -244,7 +410,7 @@ const AdminDashboard: React.FC = () => {
           </Slide>
         </Grid>
 
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item xs={12} sm={6} md={2.4}>
           <Slide direction="up" in timeout={1400}>
             <Card
               sx={{
@@ -252,6 +418,12 @@ const AdminDashboard: React.FC = () => {
                 color: 'white',
                 position: 'relative',
                 overflow: 'hidden',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: '0 8px 25px rgba(16, 185, 129, 0.3)',
+                },
                 '&::before': {
                   content: '""',
                   position: 'absolute',
@@ -264,6 +436,7 @@ const AdminDashboard: React.FC = () => {
                   transform: 'translate(30px, -30px)',
                 },
               }}
+              onClick={() => handleStatusFilter('completed')}
             >
               <CardContent>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -284,51 +457,118 @@ const AdminDashboard: React.FC = () => {
           </Slide>
         </Grid>
 
+        {/* Priority Tasks Card */}
+        <Grid item xs={12} sm={6} md={2.4}>
+          <Slide direction="up" in timeout={1600}>
+            <Card
+              sx={{
+                background: 'linear-gradient(135deg, #8b5cf6 0%, #a855f7 100%)',
+                color: 'white',
+                position: 'relative',
+                overflow: 'hidden',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: '0 8px 25px rgba(139, 92, 246, 0.3)',
+                },
+                '&::before': {
+                  content: '""',
+                  position: 'absolute',
+                  top: 0,
+                  right: 0,
+                  width: 100,
+                  height: 100,
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  borderRadius: '50%',
+                  transform: 'translate(30px, -30px)',
+                },
+              }}
+              onClick={() => handleStatusFilter('priority')}
+            >
+              <CardContent>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Box>
+                    <Typography variant="body2" sx={{ opacity: 0.9, mb: 1 }}>
+                      High Priority Tasks
+                    </Typography>
+                    <Typography variant="h3" fontWeight={700}>
+                      {priorityTasksToday.length}
+                    </Typography>
+                  </Box>
+                  <Avatar sx={{ bgcolor: 'rgba(255, 255, 255, 0.2)', width: 56, height: 56 }}>
+                    <PriorityHigh sx={{ fontSize: 28 }} />
+                  </Avatar>
+                </Box>
+              </CardContent>
+            </Card>
+          </Slide>
+        </Grid>
+
         {/* Recent Assignments */}
-        <Grid item xs={12} md={8}>
+        <Grid item xs={12} md={6}>
           <Fade in timeout={1600}>
             <Card sx={{ height: '100%' }}>
               <CardContent>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
                   <Box>
                     <Typography variant="h5" fontWeight={600} gutterBottom>
-                      Recent Assignments
+                      {statusFilter ? `${statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1)} Assignments` : 'Recent Assignments'}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Latest task assignments and their status
+                      {statusFilter ? `Task assignments with ${statusFilter} status` : 'Latest task assignments and their status'}
                     </Typography>
                   </Box>
-                  <Button
-                    variant="contained"
-                    startIcon={<Add />}
-                    onClick={() => navigate('/assignments/new')}
-                    sx={{ borderRadius: 2 }}
-                  >
-                    New Assignment
-                  </Button>
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                    {statusFilter && (
+                      <Chip
+                        label={`Filtered by: ${statusFilter}`}
+                        onDelete={handleClearFilter}
+                        color="primary"
+                        variant="outlined"
+                        sx={{ mr: 1 }}
+                      />
+                    )}
+                    <Button
+                      variant="outlined"
+                      onClick={updateOverdueAssignments}
+                      sx={{ borderRadius: 2 }}
+                    >
+                      Update Overdue
+                    </Button>
+                    <Button
+                      variant="contained"
+                      startIcon={<Add />}
+                      onClick={() => navigate('/assignments/new')}
+                      sx={{ borderRadius: 2 }}
+                    >
+                      New Assignment
+                    </Button>
+                  </Box>
                 </Box>
                 
-                {assignments.length === 0 ? (
+                {filteredAssignments.length === 0 ? (
                   <Box sx={{ textAlign: 'center', py: 4 }}>
                     <Avatar sx={{ bgcolor: 'grey.100', width: 64, height: 64, mx: 'auto', mb: 2 }}>
                       <Assignment sx={{ fontSize: 32, color: 'grey.400' }} />
                     </Avatar>
                     <Typography variant="h6" color="text.secondary" gutterBottom>
-                      No assignments yet
+                      {statusFilter ? `No ${statusFilter} assignments found` : 'No assignments yet'}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Create your first task assignment to get started
+                      {statusFilter ? 'Try selecting a different filter or create a new assignment' : 'Create your first task assignment to get started'}
                     </Typography>
                   </Box>
                 ) : (
                   <List sx={{ p: 0 }}>
-                    {assignments.slice(0, 5).map((assignment, index) => (
+                    {filteredAssignments.slice(0, 5).map((assignment, index) => (
                       <Fade in timeout={1800 + index * 200} key={assignment.id}>
                         <ListItem 
                           sx={{ 
                             borderRadius: 2, 
                             mb: 1,
                             border: '1px solid #e2e8f0',
+                            cursor: 'pointer',
                             transition: 'all 0.2s ease',
                             '&:hover': {
                               borderColor: '#6366f1',
@@ -336,15 +576,26 @@ const AdminDashboard: React.FC = () => {
                               boxShadow: '0 4px 12px rgba(99, 102, 241, 0.15)',
                             },
                           }}
+                          onClick={() => handleAssignmentClick(assignment)}
                         >
                           <Avatar sx={{ bgcolor: 'primary.main', mr: 2, width: 40, height: 40 }}>
                             <Assignment sx={{ fontSize: 20 }} />
                           </Avatar>
                           <ListItemText
                             primary={
-                              <Typography variant="subtitle1" fontWeight={600}>
-                                Task #{assignment.taskId}
-                              </Typography>
+                              <Box display="flex" alignItems="center" gap={1}>
+                                <Typography variant="subtitle1" fontWeight={600}>
+                                  {getTaskTitle(assignment.taskId)}
+                                </Typography>
+                                {getTaskPriority(assignment.taskId) && (
+                                  <Chip
+                                    label="High Priority"
+                                    size="small"
+                                    color="error"
+                                    icon={<PriorityHigh />}
+                                  />
+                                )}
+                              </Box>
                             }
                             secondary={
                               <Typography variant="body2" color="text.secondary">
@@ -354,9 +605,9 @@ const AdminDashboard: React.FC = () => {
                           />
                           <ListItemSecondaryAction>
                             <Chip
-                              icon={getStatusIcon(assignment.status)}
-                              label={assignment.status}
-                              color={getStatusColor(assignment.status) as any}
+                              icon={getStatusIcon(assignment)}
+                              label={getDisplayStatus(assignment)}
+                              color={getStatusColor(assignment) as any}
                               size="small"
                               sx={{ fontWeight: 500 }}
                             />
@@ -372,7 +623,7 @@ const AdminDashboard: React.FC = () => {
         </Grid>
 
         {/* Quick Actions & Progress */}
-        <Grid item xs={12} md={4}>
+        <Grid item xs={12} md={6}>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, height: '100%' }}>
             {/* Progress Card */}
             <Fade in timeout={1600}>
@@ -507,6 +758,135 @@ const AdminDashboard: React.FC = () => {
           </Box>
         </Grid>
       </Grid>
+
+      {/* Assignment Details Dialog */}
+      <Dialog
+        open={assignmentDetailsOpen}
+        onClose={handleAssignmentDetailsClose}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          Assignment Details
+        </DialogTitle>
+        <DialogContent>
+          {selectedAssignmentForDetails && (
+            <Box>
+              <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+                <Typography variant="h6">
+                  {getTaskTitle(selectedAssignmentForDetails.taskId)}
+                </Typography>
+                <Chip
+                  icon={getStatusIcon(selectedAssignmentForDetails)}
+                  label={getDisplayStatus(selectedAssignmentForDetails)}
+                  color={getStatusColor(selectedAssignmentForDetails) as any}
+                  size="small"
+                />
+              </Box>
+
+              <Box mb={3}>
+                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                  Task Description
+                </Typography>
+                <Typography variant="body1">
+                  {getTaskDescription(selectedAssignmentForDetails.taskId)}
+                </Typography>
+              </Box>
+
+              <Box display="flex" alignItems="center" mb={3}>
+                <Avatar sx={{ 
+                  width: 40, 
+                  height: 40, 
+                  mr: 2,
+                  bgcolor: selectedAssignmentForDetails.staffId ? 'primary.main' : 'grey.400'
+                }}>
+                  {getStaffName(selectedAssignmentForDetails.staffId).charAt(0)}
+                </Avatar>
+                <Box>
+                  <Typography variant="subtitle1" fontWeight="bold">
+                    {getStaffName(selectedAssignmentForDetails.staffId)}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {getStaffEmail(selectedAssignmentForDetails.staffId)}
+                  </Typography>
+                </Box>
+              </Box>
+
+              <Box display="grid" gridTemplateColumns="1fr 1fr" gap={2} mb={3}>
+                <Box>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Location
+                  </Typography>
+                  <Typography variant="body1">
+                    {getOutletName(selectedAssignmentForDetails.outletId)}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Assigned Date
+                  </Typography>
+                  <Typography variant="body1">
+                    {new Date(selectedAssignmentForDetails.assignedDate).toLocaleDateString()}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Due Date
+                  </Typography>
+                  <Typography variant="body1">
+                    {new Date(selectedAssignmentForDetails.dueDate).toLocaleDateString()}
+                  </Typography>
+                </Box>
+                {selectedAssignmentForDetails.completedAt && (
+                  <Box>
+                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                      Completed Date
+                    </Typography>
+                    <Typography variant="body1">
+                      {new Date(selectedAssignmentForDetails.completedAt).toLocaleDateString()}
+                    </Typography>
+                  </Box>
+                )}
+                {selectedAssignmentForDetails.minutesDeducted && (
+                  <Box>
+                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                      Minutes Deducted
+                    </Typography>
+                    <Typography variant="body1">
+                      {selectedAssignmentForDetails.minutesDeducted} minutes
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
+
+              {selectedAssignmentForDetails.completionProof && (
+                <Box mb={2}>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Completion Proof
+                  </Typography>
+                  <Typography variant="body1">
+                    {selectedAssignmentForDetails.completionProof}
+                  </Typography>
+                </Box>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleAssignmentDetailsClose}>
+            Close
+          </Button>
+          <Button 
+            variant="contained" 
+            onClick={() => {
+              handleAssignmentDetailsClose();
+              navigate('/assignments');
+            }}
+          >
+            View All Assignments
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

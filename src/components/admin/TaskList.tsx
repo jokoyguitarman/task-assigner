@@ -25,6 +25,7 @@ import {
   Add,
   Schedule,
   Assignment,
+  PriorityHigh,
 } from '@mui/icons-material';
 import { Task } from '../../types';
 import { tasksAPI } from '../../services/supabaseService';
@@ -123,6 +124,7 @@ const TaskList: React.FC = () => {
                   <TableCell>Description</TableCell>
                   <TableCell>Estimated Time</TableCell>
                   <TableCell>Type</TableCell>
+                  <TableCell>Priority</TableCell>
                   <TableCell>Scheduled Date</TableCell>
                   <TableCell>Created</TableCell>
                   <TableCell>Actions</TableCell>
@@ -153,6 +155,22 @@ const TaskList: React.FC = () => {
                     </TableCell>
                     <TableCell>
                       {getRecurringChip(task)}
+                    </TableCell>
+                    <TableCell>
+                      {task.isHighPriority ? (
+                        <Chip
+                          label="High Priority"
+                          size="small"
+                          color="error"
+                          icon={<PriorityHigh />}
+                        />
+                      ) : (
+                        <Chip
+                          label="Normal"
+                          size="small"
+                          color="default"
+                        />
+                      )}
                     </TableCell>
                     <TableCell>
                       {task.scheduledDate 

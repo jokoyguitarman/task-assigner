@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Card,
@@ -18,7 +18,7 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { useForm, Controller } from 'react-hook-form';
-import { TaskFormData } from '../../types';
+import { TaskFormData, Task } from '../../types';
 import { tasksAPI } from '../../services/supabaseService';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -31,17 +31,49 @@ interface TaskFormProps {
 const TaskForm: React.FC<TaskFormProps> = ({ taskId, onSuccess, onCancel }) => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
-  const { control, handleSubmit, watch, formState: { errors } } = useForm<TaskFormData>({
+  const [taskData, setTaskData] = useState<Task | null>(null);
+  const [formLoading, setFormLoading] = useState(false);
+  
+  const { control, handleSubmit, watch, reset, formState: { errors } } = useForm<TaskFormData>({
     defaultValues: {
       title: '',
       description: '',
       estimatedMinutes: 30,
       isRecurring: false,
       recurringPattern: 'daily',
+      isHighPriority: false,
     },
   });
 
   const isRecurring = watch('isRecurring');
+
+  // Load task data when editing
+  useEffect(() => {
+    const loadTask = async () => {
+      if (taskId) {
+        setFormLoading(true);
+        try {
+          const task = await tasksAPI.getById(taskId);
+          setTaskData(task);
+          reset({
+            title: task.title,
+            description: task.description,
+            estimatedMinutes: task.estimatedMinutes,
+            isRecurring: task.isRecurring,
+            recurringPattern: task.recurringPattern || 'daily',
+            scheduledDate: task.scheduledDate,
+            isHighPriority: task.isHighPriority,
+          });
+        } catch (error) {
+          console.error('Error loading task:', error);
+        } finally {
+          setFormLoading(false);
+        }
+      }
+    };
+
+    loadTask();
+  }, [taskId, reset]);
 
   const onSubmit = async (data: TaskFormData) => {
     setLoading(true);
@@ -65,6 +97,18 @@ const TaskForm: React.FC<TaskFormProps> = ({ taskId, onSuccess, onCancel }) => {
       setLoading(false);
     }
   };
+
+  if (formLoading) {
+    return (
+      <Card>
+        <CardContent>
+          <Typography variant="h6" gutterBottom>
+            Loading task data...
+          </Typography>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <LocalizationProvider dateAdapter={AdapterDateFns}>
@@ -163,6 +207,24 @@ const TaskForm: React.FC<TaskFormProps> = ({ taskId, onSuccess, onCancel }) => {
                         />
                       }
                       label="Recurring Task"
+                    />
+                  )}
+                />
+              </Grid>
+
+              <Grid item xs={12}>
+                <Controller
+                  name="isHighPriority"
+                  control={control}
+                  render={({ field }) => (
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={field.value}
+                          onChange={field.onChange}
+                        />
+                      }
+                      label="High Priority Task"
                     />
                   )}
                 />

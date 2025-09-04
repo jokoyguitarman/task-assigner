@@ -15,6 +15,7 @@ export interface Task {
   isRecurring: boolean;
   recurringPattern?: 'daily' | 'weekly' | 'monthly';
   scheduledDate?: Date;
+  isHighPriority: boolean;
   createdAt: Date;
   updatedAt: Date;
   createdBy: string; // Admin user ID
@@ -63,6 +64,7 @@ export interface TaskFormData {
   isRecurring: boolean;
   recurringPattern?: 'daily' | 'weekly' | 'monthly';
   scheduledDate?: Date;
+  isHighPriority: boolean;
 }
 
 export interface AssignmentFormData {

@@ -28,6 +28,7 @@ const transformTask = (row: any): Task => ({
   isRecurring: row.is_recurring || false,
   recurringPattern: row.recurring_pattern,
   scheduledDate: row.scheduled_date ? new Date(row.scheduled_date) : undefined,
+  isHighPriority: row.is_high_priority || false,
   createdBy: row.created_by,
   createdAt: new Date(row.created_at),
   updatedAt: new Date(row.updated_at),
@@ -94,19 +95,32 @@ const transformMonthlySchedule = (row: any): MonthlySchedule => ({
   dailySchedules: row.daily_schedules ? row.daily_schedules.map(transformDailySchedule) : [],
 });
 
-const transformDailySchedule = (row: any): DailySchedule => ({
-  id: row.id,
-  monthlyScheduleId: row.monthly_schedule_id,
-  scheduleDate: new Date(row.schedule_date),
-  outletId: row.outlet_id,
-  timeIn: row.time_in,
-  timeOut: row.time_out,
-  isDayOff: row.is_day_off,
-  dayOffType: row.day_off_type,
-  notes: row.notes,
-  createdAt: new Date(row.created_at),
-  outlet: row.outlet ? transformOutlet(row.outlet) : undefined,
-});
+const transformDailySchedule = (row: any): DailySchedule => {
+  const transformed = {
+    id: row.id,
+    monthlyScheduleId: row.monthly_schedule_id,
+    scheduleDate: new Date(row.schedule_date),
+    outletId: row.outlet_id,
+    timeIn: row.time_in,
+    timeOut: row.time_out,
+    isDayOff: row.is_day_off,
+    dayOffType: row.day_off_type,
+    notes: row.notes,
+    createdAt: new Date(row.created_at),
+    outlet: row.outlet ? transformOutlet(row.outlet) : undefined,
+  };
+  
+  // Debug logging for outlet assignments
+  if (row.outlet_id) {
+    console.log(`🔄 transformDailySchedule - Schedule ${row.id} has outlet ${row.outlet_id}`, {
+      outletId: transformed.outletId,
+      outletName: transformed.outlet?.name || 'No outlet name',
+      outletData: row.outlet
+    });
+  }
+  
+  return transformed;
+};
 
 const transformTaskCompletionProof = (row: any): TaskCompletionProof => ({
   id: row.id,
@@ -370,6 +384,10 @@ export const tasksAPI = {
         title: taskData.title,
         description: taskData.description,
         estimated_minutes: taskData.estimatedMinutes,
+        is_recurring: taskData.isRecurring,
+        recurring_pattern: taskData.recurringPattern,
+        scheduled_date: taskData.scheduledDate,
+        is_high_priority: taskData.isHighPriority,
         created_by: taskData.createdBy,
       })
       .select()
@@ -385,15 +403,22 @@ export const tasksAPI = {
       throw new Error('Supabase not configured');
     }
 
+    const updateData: any = {
+      updated_at: new Date().toISOString(),
+    };
+
+    if (taskData.title !== undefined) updateData.title = taskData.title;
+    if (taskData.description !== undefined) updateData.description = taskData.description;
+    if (taskData.estimatedMinutes !== undefined) updateData.estimated_minutes = taskData.estimatedMinutes;
+    if (taskData.isRecurring !== undefined) updateData.is_recurring = taskData.isRecurring;
+    if (taskData.recurringPattern !== undefined) updateData.recurring_pattern = taskData.recurringPattern;
+    if (taskData.scheduledDate !== undefined) updateData.scheduled_date = taskData.scheduledDate;
+    if (taskData.isHighPriority !== undefined) updateData.is_high_priority = taskData.isHighPriority;
+    if (taskData.createdBy !== undefined) updateData.created_by = taskData.createdBy;
+
     const { data, error } = await supabase
       .from('tasks')
-      .update({
-        title: taskData.title,
-        description: taskData.description,
-        estimated_minutes: taskData.estimatedMinutes,
-        created_by: taskData.createdBy,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updateData)
       .eq('id', id)
       .select()
       .single();
@@ -1034,18 +1059,24 @@ export const dailySchedulesAPI = {
       throw new Error('Supabase not configured');
     }
 
+    console.log('🔄 dailySchedulesAPI.create called with:', scheduleData);
+
+    const insertData = {
+      monthly_schedule_id: scheduleData.monthlyScheduleId,
+      schedule_date: scheduleData.scheduleDate.toISOString(),
+      outlet_id: scheduleData.outletId || null,
+      time_in: scheduleData.timeIn,
+      time_out: scheduleData.timeOut,
+      is_day_off: scheduleData.isDayOff,
+      day_off_type: scheduleData.dayOffType,
+      notes: scheduleData.notes,
+    };
+
+    console.log('🔄 Insert data being sent to Supabase:', insertData);
+
     const { data, error } = await supabase
       .from('daily_schedules')
-      .insert({
-        monthly_schedule_id: scheduleData.monthlyScheduleId,
-        schedule_date: scheduleData.scheduleDate.toISOString(),
-        outlet_id: scheduleData.outletId,
-        time_in: scheduleData.timeIn,
-        time_out: scheduleData.timeOut,
-        is_day_off: scheduleData.isDayOff,
-        day_off_type: scheduleData.dayOffType,
-        notes: scheduleData.notes,
-      })
+      .insert(insertData)
       .select(`
         *,
         outlet:outlets(*)
@@ -1062,15 +1093,24 @@ export const dailySchedulesAPI = {
       throw new Error('Supabase not configured');
     }
 
+    console.log('🔄 dailySchedulesAPI.update called with:', { id, scheduleData });
+
     const updateData: any = {};
     if (scheduleData.monthlyScheduleId) updateData.monthly_schedule_id = scheduleData.monthlyScheduleId;
     if (scheduleData.scheduleDate) updateData.schedule_date = scheduleData.scheduleDate.toISOString();
-    if (scheduleData.outletId) updateData.outlet_id = scheduleData.outletId;
+    
+    // Fix: Always update outlet_id, even if it's null/undefined/empty string
+    if (scheduleData.hasOwnProperty('outletId')) {
+      updateData.outlet_id = scheduleData.outletId || null;
+    }
+    
     if (scheduleData.timeIn) updateData.time_in = scheduleData.timeIn;
     if (scheduleData.timeOut) updateData.time_out = scheduleData.timeOut;
     if (scheduleData.isDayOff !== undefined) updateData.is_day_off = scheduleData.isDayOff;
     if (scheduleData.dayOffType) updateData.day_off_type = scheduleData.dayOffType;
     if (scheduleData.notes) updateData.notes = scheduleData.notes;
+
+    console.log('🔄 Update data being sent to Supabase:', updateData);
 
     const { data, error } = await supabase
       .from('daily_schedules')

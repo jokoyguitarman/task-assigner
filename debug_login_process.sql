@@ -43,3 +43,6 @@ SELECT
     email_confirmed_at
 FROM auth.users 
 WHERE email = 'jokoyguitarman@yahoo.com';
+
+
+

@@ -31,6 +31,7 @@ import {
   Autocomplete,
   ToggleButton,
   ToggleButtonGroup,
+  Tooltip,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -60,7 +61,6 @@ import {
 import { exportService, ScheduleExportData } from '../../services/exportService';
 
 const MonthlyScheduler: React.FC = () => {
-  console.log('🚀 MonthlyScheduler component mounting...');
   const { user } = useAuth();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [staffProfiles, setStaffProfiles] = useState<StaffProfile[]>([]);
@@ -86,7 +86,6 @@ const MonthlyScheduler: React.FC = () => {
     // Try to get preference from localStorage with fallback
     try {
       const saved = localStorage.getItem('scheduler-view-preference');
-      console.log('📚 Retrieved saved view preference:', saved);
       return (saved as 'weekly' | 'monthly') || 'weekly';
     } catch (error) {
       console.warn('Failed to read localStorage preference:', error);
@@ -98,7 +97,6 @@ const MonthlyScheduler: React.FC = () => {
   // Persist view preference when it changes
   useEffect(() => {
     try {
-      console.log('💾 Saving view preference:', viewMode);
       localStorage.setItem('scheduler-view-preference', viewMode);
     } catch (error) {
       console.warn('Failed to save localStorage preference:', error);
@@ -124,9 +122,7 @@ const MonthlyScheduler: React.FC = () => {
     const recheckPreference = () => {
       try {
         const saved = localStorage.getItem('scheduler-view-preference');
-        console.log('🔍 Re-checking localStorage preference on mount:', saved);
         if (saved && saved !== viewMode) {
-          console.log('📝 Updating view mode from localStorage:', saved);
           setViewMode(saved as 'weekly' | 'monthly');
         }
       } catch (error) {
@@ -147,7 +143,6 @@ const MonthlyScheduler: React.FC = () => {
     const day = start.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
     const diff = start.getDate() - day;
     const weekStart = new Date(start.setDate(diff));
-    console.log(`🗓️ getStartOfWeek: input=${date.toDateString()}, day=${day}, weekStart=${weekStart.toDateString()}`);
     return weekStart;
   };
 
@@ -160,16 +155,6 @@ const MonthlyScheduler: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentMonth, currentYear, viewMode, currentWeekStart.toDateString()]);
 
-  // Debug component state on mount and updates
-  useEffect(() => {
-    console.log('🔄 MonthlyScheduler state update:', {
-      viewMode,
-      currentDate: currentDate.toDateString(),
-      currentWeekStart: currentWeekStart.toDateString(),
-      hasStaff: staffProfiles.length > 0,
-      hasSchedules: monthlySchedules.length > 0
-    });
-  }, [viewMode, currentDate, currentWeekStart, staffProfiles.length, monthlySchedules.length]);
 
   const loadData = async () => {
     try {
@@ -206,8 +191,6 @@ const MonthlyScheduler: React.FC = () => {
         });
       }
       
-      console.log(`🔄 Loading data for months:`, monthsToLoad);
-      
       // Load staff and outlets once, then load all required monthly schedules
       const [staffData, outletsData] = await Promise.all([
         staffProfilesAPI.getAll(),
@@ -221,14 +204,6 @@ const MonthlyScheduler: React.FC = () => {
       
       // Flatten all schedule data
       const schedulesData = allSchedulesData.flat();
-      
-      console.log(`📊 Loaded ${staffData.length} staff, ${outletsData.length} outlets, ${schedulesData.length} monthly schedules from ${monthsToLoad.length} months`);
-      console.log('📅 Monthly schedules:', schedulesData.map(ms => ({
-        staffId: ms.staffId,
-        month: ms.month,
-        year: ms.year,
-        dailySchedules: ms.dailySchedules?.length || 0
-      })));
       
       setStaffProfiles(staffData);
       setOutlets(outletsData);
@@ -342,10 +317,15 @@ const MonthlyScheduler: React.FC = () => {
         return;
       }
 
-      // Find or create monthly schedule for the staff
-      console.log('Selected staff:', selectedStaff);
-      console.log('Looking for existing schedule with staffId:', selectedStaff!.id);
-      let monthlySchedule = monthlySchedules.find(s => s.staffId === selectedStaff!.id);
+      // Find or create monthly schedule for the staff for the specific month/year of the selected date
+      const selectedDateMonth = formData.scheduleDate.getMonth() + 1;
+      const selectedDateYear = formData.scheduleDate.getFullYear();
+      
+      let monthlySchedule = monthlySchedules.find(s => 
+        s.staffId === selectedStaff!.id && 
+        s.month === selectedDateMonth && 
+        s.year === selectedDateYear
+      );
       
       if (!monthlySchedule) {
         if (!user?.id) {
@@ -353,17 +333,10 @@ const MonthlyScheduler: React.FC = () => {
           return;
         }
         
-        console.log('Creating new monthly schedule with data:', {
-          staffId: selectedStaff!.id,
-          month: currentMonth,
-          year: currentYear,
-          createdBy: user.id,
-        });
-        
         monthlySchedule = await monthlySchedulesAPI.create({
           staffId: selectedStaff!.id,
-          month: currentMonth,
-          year: currentYear,
+          month: selectedDateMonth,
+          year: selectedDateYear,
           createdBy: user.id,
         });
       }
@@ -404,36 +377,20 @@ const MonthlyScheduler: React.FC = () => {
 
       // If "Apply to Entire Week" is checked, create schedules for all days of the week
       if (applyToEntireWeek && !formData.isDayOff) {
-        console.log('🔄 Applying schedule to entire week...');
         // Get the week that contains the selected date, not the current display week
         const selectedDateWeekStart = getStartOfWeek(formData.scheduleDate);
         const weekDays = getWeekDays(selectedDateWeekStart);
         let appliedCount = 0;
         
-        console.log('📅 Week days:', weekDays.map(d => d.toDateString()));
-        console.log('🎯 Target date:', formData.scheduleDate.toDateString());
-        console.log('🗓️ Selected date week start:', selectedDateWeekStart.toDateString());
-        
-        // Reload data to get the most current schedules before checking for existing ones
-        console.log('🔄 Reloading data to get current schedules...');
-        await loadData();
-        
-        for (const weekDay of weekDays) {
-          console.log(`🔄 Processing ${weekDay.toDateString()} (day ${weekDay.getDay()})`);
+        for (let i = 0; i < weekDays.length; i++) {
+          const weekDay = weekDays[i];
           
-          // Skip the day we just created and skip existing schedules
+          // Skip the day we just created
           if (weekDay.toDateString() !== formData.scheduleDate.toDateString()) {
-            console.log(`✅ Not the original date, checking for existing schedule...`);
             const existingSchedule = getStaffScheduleForDate(selectedStaff!.id, weekDay);
-            console.log(`📋 Checking ${weekDay.toDateString()}: existing=${!!existingSchedule}`);
             
-            if (!existingSchedule) {
-              console.log(`🎯 Creating schedule for ${weekDay.toDateString()}`);
-            } else {
-              console.log(`⏭️ Skipping ${weekDay.toDateString()} - already has schedule`);
-            }
-            
-            if (!existingSchedule) {
+            // Only skip if it's a day-off, otherwise overwrite regular schedules
+            if (!existingSchedule || !existingSchedule.isDayOff) {
               // Find or create monthly schedule for this month/year
               let monthlyScheduleForWeekDay = monthlySchedules.find(s => 
                 s.staffId === selectedStaff!.id && 
@@ -442,7 +399,6 @@ const MonthlyScheduler: React.FC = () => {
               );
               
               if (!monthlyScheduleForWeekDay) {
-                console.log(`📅 Creating monthly schedule for ${weekDay.getMonth() + 1}/${weekDay.getFullYear()}`);
                 monthlyScheduleForWeekDay = await monthlySchedulesAPI.create({
                   staffId: selectedStaff!.id,
                   month: weekDay.getMonth() + 1,
@@ -463,28 +419,34 @@ const MonthlyScheduler: React.FC = () => {
               };
               
               try {
-                console.log(`✅ Creating schedule for ${weekDay.toDateString()}`);
-                await dailySchedulesAPI.create(weeklyScheduleData);
+                if (existingSchedule) {
+                  // Update existing schedule (overwrite)
+                  await dailySchedulesAPI.update(existingSchedule.id, weeklyScheduleData);
+                } else {
+                  // Create new schedule
+                  await dailySchedulesAPI.create(weeklyScheduleData);
+                }
                 appliedCount++;
               } catch (err) {
-                console.log(`❌ Could not create schedule for ${weekDay.toLocaleDateString()}:`, err);
+                console.error(`Could not create/update schedule for ${weekDay.toLocaleDateString()}:`, err);
               }
             }
           }
         }
         
-        console.log(`🎉 Applied to ${appliedCount} additional days`);
         if (appliedCount > 0) {
           successMessage = `${successMessage.replace('!', '')} and applied to ${appliedCount} additional days this week!`;
+          // Reload data to show the changes immediately
+          await loadData();
         }
       }
 
       setSuccess(successMessage);
       setApplyToEntireWeek(false); // Reset the checkbox after successful save
       
-      // Only reload data if we didn't already do it in the Apply to Entire Week logic
+      // Only reload data if we didn't apply to entire week (to see debugging logs)
       if (!applyToEntireWeek || formData.isDayOff) {
-      await loadData();
+        await loadData();
       }
       
       handleCloseDialog();
@@ -571,14 +533,16 @@ const MonthlyScheduler: React.FC = () => {
 
   const getStaffScheduleForDate = (staffId: string, date: Date) => {
     // Find the monthly schedule for the specific month and year
+    const targetMonth = date.getMonth() + 1;
+    const targetYear = date.getFullYear();
+    
     const monthlySchedule = monthlySchedules.find(s => 
       s.staffId === staffId && 
-      s.month === date.getMonth() + 1 && 
-      s.year === date.getFullYear()
+      s.month === targetMonth && 
+      s.year === targetYear
     );
     
     if (!monthlySchedule) {
-      console.log(`📅 No monthly schedule found for staff ${staffId} in ${date.getMonth() + 1}/${date.getFullYear()}`);
       return null;
     }
     
@@ -586,7 +550,6 @@ const MonthlyScheduler: React.FC = () => {
       new Date(ds.scheduleDate).toDateString() === date.toDateString()
     );
     
-    console.log(`🔍 getStaffScheduleForDate(${staffId}, ${date.toDateString()}): found=${!!dailySchedule}`);
     return dailySchedule;
   };
 
@@ -597,7 +560,6 @@ const MonthlyScheduler: React.FC = () => {
       day.setDate(startDate.getDate() + i);
       days.push(day);
     }
-    console.log(`📅 getWeekDays from ${startDate.toDateString()}:`, days.map(d => `${d.toDateString()} (${d.getDay()})`));
     return days;
   };
 
@@ -690,6 +652,11 @@ const MonthlyScheduler: React.FC = () => {
 
   // Get outlet color for visual differentiation
   const getOutletColor = (outletId: string): string => {
+    // Safety check: if outlets haven't loaded yet, return default color
+    if (!outlets || outlets.length === 0) {
+      return '#9e9e9e';
+    }
+    
     const colors = [
       '#1976d2', // Blue
       '#388e3c', // Green  
@@ -706,17 +673,7 @@ const MonthlyScheduler: React.FC = () => {
     ];
     
     const index = outlets.findIndex(outlet => outlet.id === outletId);
-    const color = index >= 0 ? colors[index % colors.length] : '#9e9e9e'; // Default grey
-    
-    // Debug logging
-    if (outletId) {
-      const outlet = outlets.find(o => o.id === outletId);
-      console.log(`🎨 Color for outlet ${outlet?.name || outletId}: ${color} (index: ${index})`);
-    } else {
-      console.log(`🎨 No outletId provided - using default grey color`);
-    }
-    
-    return color;
+    return index >= 0 ? colors[index % colors.length] : '#9e9e9e'; // Default grey
   };
 
   // Get outlet name by ID
@@ -929,6 +886,48 @@ const MonthlyScheduler: React.FC = () => {
     }
   };
 
+  const resetScheduleForDay = async (staffId: string, date: Date) => {
+    try {
+      setError(null);
+      const existingSchedule = getStaffScheduleForDate(staffId, date);
+      
+      if (existingSchedule) {
+        await dailySchedulesAPI.delete(existingSchedule.id);
+        await loadData();
+        setSuccess(`Schedule cleared for ${date.toLocaleDateString()}`);
+      } else {
+        setError('No schedule found for this day');
+      }
+    } catch (err) {
+      console.error('Error resetting schedule:', err);
+      setError('Failed to reset schedule');
+    }
+  };
+
+  const resetScheduleForWeek = async () => {
+    try {
+      setError(null);
+      const weekDays = getWeekDays(currentWeekStart);
+      let clearedCount = 0;
+      
+      for (const staff of staffProfiles) {
+        for (const date of weekDays) {
+          const existingSchedule = getStaffScheduleForDate(staff.id, date);
+          if (existingSchedule) {
+            await dailySchedulesAPI.delete(existingSchedule.id);
+            clearedCount++;
+          }
+        }
+      }
+      
+      await loadData();
+      setSuccess(`Cleared ${clearedCount} schedules for the current week`);
+    } catch (err) {
+      console.error('Error resetting week schedules:', err);
+      setError('Failed to reset week schedules');
+    }
+  };
+
   if (loading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
@@ -1038,18 +1037,6 @@ const MonthlyScheduler: React.FC = () => {
                   >
                     Copy Previous Week
                   </Button>
-                  <Button
-                    variant="contained"
-                    startIcon={<ArrowForwardIcon />}
-                    onClick={shiftDayOffsForward}
-                    sx={{
-                      background: 'rgba(255, 255, 255, 0.2)',
-                      backdropFilter: 'blur(10px)',
-                      '&:hover': { background: 'rgba(255, 255, 255, 0.3)' },
-                    }}
-                  >
-                    Shift Day-offs +1
-                  </Button>
                 <Button
                   variant="contained"
                   startIcon={<PdfIcon />}
@@ -1073,6 +1060,18 @@ const MonthlyScheduler: React.FC = () => {
                   }}
                 >
                   Export JPEG
+                </Button>
+                <Button
+                  variant="contained"
+                  startIcon={<CalendarIcon />}
+                  onClick={resetScheduleForWeek}
+                  sx={{
+                    background: 'rgba(255, 193, 7, 0.2)',
+                    backdropFilter: 'blur(10px)',
+                    '&:hover': { background: 'rgba(255, 193, 7, 0.3)' },
+                  }}
+                >
+                  Reset Week
                 </Button>
                 </Box>
               </Box>
@@ -1177,48 +1176,51 @@ const MonthlyScheduler: React.FC = () => {
                               {getWeekDays(currentWeekStart).map((date, dayIndex) => {
                               const schedule = getStaffScheduleForDate(staff.id, date);
                               
-                              // Debug logging for schedule data
-                              if (schedule) {
-                                console.log(`📅 Schedule for ${staff.id} on ${date.toDateString()}:`, {
-                                  outletId: schedule.outletId,
-                                  outletName: schedule.outletId ? getOutletName(schedule.outletId) : 'No outlet',
-                                  isDayOff: schedule.isDayOff,
-                                  timeIn: schedule.timeIn,
-                                  timeOut: schedule.timeOut
-                                });
-                              }
                               
                               return (
                                   <TableCell key={dayIndex} align="center">
                                     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
-                                  <IconButton
-                                    size="small"
-                                    onClick={() => handleOpenDialog(staff, date)}
-                                    sx={{
-                                          width: 50,
-                                          height: 50,
-                                          borderRadius: 2,
-                                      backgroundColor: schedule?.isDayOff 
-                                        ? 'error.light' 
-                                            : schedule?.outletId
-                                              ? getOutletColor(schedule.outletId)
-                                          : 'grey.100',
-                                      color: schedule?.isDayOff 
-                                        ? 'error.contrastText' 
-                                            : schedule?.outletId
-                                              ? 'white'
-                                          : 'text.secondary',
-                                      '&:hover': {
-                                        backgroundColor: schedule?.isDayOff 
-                                          ? 'error.main' 
-                                              : schedule?.outletId
-                                                ? `${getOutletColor(schedule.outletId)}dd` // Slightly darker on hover
-                                            : 'grey.300',
-                                      },
-                                    }}
+                                  <Tooltip 
+                                    title={schedule ? `Right-click to clear schedule` : `Click to add schedule`}
+                                    placement="top"
                                   >
-                                    <ScheduleIcon fontSize="small" />
-                                  </IconButton>
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => handleOpenDialog(staff, date)}
+                                      onContextMenu={(e) => {
+                                        e.preventDefault();
+                                        if (schedule) {
+                                          if (window.confirm(`Clear schedule for ${staff.user?.name} on ${date.toLocaleDateString()}?`)) {
+                                            resetScheduleForDay(staff.id, date);
+                                          }
+                                        }
+                                      }}
+                                      sx={{
+                                            width: 50,
+                                            height: 50,
+                                            borderRadius: 2,
+                                        backgroundColor: schedule?.isDayOff 
+                                          ? 'error.light' 
+                                              : schedule?.outletId
+                                                ? getOutletColor(schedule.outletId)
+                                            : 'grey.100',
+                                        color: schedule?.isDayOff 
+                                          ? 'error.contrastText' 
+                                              : schedule?.outletId
+                                                ? 'white'
+                                            : 'text.secondary',
+                                        '&:hover': {
+                                          backgroundColor: schedule?.isDayOff 
+                                            ? 'error.main' 
+                                                : schedule?.outletId
+                                                  ? `${getOutletColor(schedule.outletId)}dd` // Slightly darker on hover
+                                              : 'grey.300',
+                                        },
+                                      }}
+                                    >
+                                      <ScheduleIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
                                   {schedule && (
                                         <Typography variant="caption" sx={{ fontSize: '0.7rem', textAlign: 'center' }}>
                                       {schedule.isDayOff 
@@ -1303,34 +1305,47 @@ const MonthlyScheduler: React.FC = () => {
                                           {date.getDate()}
                                         </Typography>
                                         {isCurrentMonth && (
-                                          <IconButton
-                                            size="small"
-                                            onClick={() => handleOpenDialog(staff, date)}
-                                            sx={{
-                                              width: 35,
-                                              height: 35,
-                                              borderRadius: 1,
-                                              backgroundColor: schedule?.isDayOff 
-                                                ? 'error.light' 
-                                                : schedule?.outletId
-                                                  ? getOutletColor(schedule.outletId)
-                                                  : 'grey.100',
-                                              color: schedule?.isDayOff 
-                                                ? 'error.contrastText' 
-                                                : schedule?.outletId
-                                                  ? 'white'
-                                                  : 'text.secondary',
-                                              '&:hover': {
-                                                backgroundColor: schedule?.isDayOff 
-                                                  ? 'error.main' 
-                                                  : schedule?.outletId
-                                                    ? `${getOutletColor(schedule.outletId)}dd`
-                                                    : 'grey.300',
-                                              },
-                                            }}
+                                          <Tooltip 
+                                            title={schedule ? `Right-click to clear schedule` : `Click to add schedule`}
+                                            placement="top"
                                           >
-                                            <ScheduleIcon fontSize="small" />
-                                          </IconButton>
+                                            <IconButton
+                                              size="small"
+                                              onClick={() => handleOpenDialog(staff, date)}
+                                              onContextMenu={(e) => {
+                                                e.preventDefault();
+                                                if (schedule) {
+                                                  if (window.confirm(`Clear schedule for ${staff.user?.name} on ${date.toLocaleDateString()}?`)) {
+                                                    resetScheduleForDay(staff.id, date);
+                                                  }
+                                                }
+                                              }}
+                                              sx={{
+                                                width: 35,
+                                                height: 35,
+                                                borderRadius: 1,
+                                                backgroundColor: schedule?.isDayOff 
+                                                  ? 'error.light' 
+                                                  : schedule?.outletId
+                                                    ? getOutletColor(schedule.outletId)
+                                                    : 'grey.100',
+                                                color: schedule?.isDayOff 
+                                                  ? 'error.contrastText' 
+                                                  : schedule?.outletId
+                                                    ? 'white'
+                                                    : 'text.secondary',
+                                                '&:hover': {
+                                                  backgroundColor: schedule?.isDayOff 
+                                                    ? 'error.main' 
+                                                    : schedule?.outletId
+                                                      ? `${getOutletColor(schedule.outletId)}dd`
+                                                      : 'grey.300',
+                                                },
+                                              }}
+                                            >
+                                              <ScheduleIcon fontSize="small" />
+                                            </IconButton>
+                                          </Tooltip>
                                         )}
                                       </Box>
                                     </TableCell>

@@ -28,3 +28,6 @@ SELECT id, email, created_at
 FROM auth.users 
 WHERE email LIKE '%jokoy%' OR email LIKE '%yahoo%'
 ORDER BY created_at DESC;
+
+
+

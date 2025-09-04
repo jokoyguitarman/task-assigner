@@ -27,3 +27,6 @@ SELECT
 FROM auth.users a
 FULL OUTER JOIN public.users p ON a.id = p.id
 WHERE a.email = 'jokoyguitarman@yahoo.com' OR p.email = 'jokoyguitarman@yahoo.com';
+
+
+
