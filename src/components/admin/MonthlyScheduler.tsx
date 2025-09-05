@@ -205,6 +205,7 @@ const MonthlyScheduler: React.FC = () => {
       // Flatten all schedule data
       const schedulesData = allSchedulesData.flat();
       
+      
       setStaffProfiles(staffData);
       setOutlets(outletsData);
       setMonthlySchedules(schedulesData);
@@ -345,12 +346,17 @@ const MonthlyScheduler: React.FC = () => {
       const existingSchedule = getStaffScheduleForDate(selectedStaff!.id, formData.scheduleDate);
       
       // Prepare daily schedule data
+      // Fix timezone issue by creating a date at noon to avoid day shift
+      const normalizedScheduleDate = new Date(formData.scheduleDate);
+      normalizedScheduleDate.setHours(12, 0, 0, 0); // Set to noon to avoid timezone issues
+      
       const dailyScheduleData: any = {
         monthlyScheduleId: monthlySchedule.id,
-        scheduleDate: formData.scheduleDate,
+        scheduleDate: normalizedScheduleDate,
         isDayOff: formData.isDayOff,
         notes: formData.notes,
       };
+      
 
       if (formData.isDayOff) {
         // For day off, include dayOffType but no outlet or times
@@ -382,54 +388,62 @@ const MonthlyScheduler: React.FC = () => {
         const weekDays = getWeekDays(selectedDateWeekStart);
         let appliedCount = 0;
         
+        
         for (let i = 0; i < weekDays.length; i++) {
           const weekDay = weekDays[i];
-          
-          // Skip the day we just created
-          if (weekDay.toDateString() !== formData.scheduleDate.toDateString()) {
-            const existingSchedule = getStaffScheduleForDate(selectedStaff!.id, weekDay);
+          const existingSchedule = getStaffScheduleForDate(selectedStaff!.id, weekDay);
             
-            // Only skip if it's a day-off, otherwise overwrite regular schedules
-            if (!existingSchedule || !existingSchedule.isDayOff) {
-              // Find or create monthly schedule for this month/year
-              let monthlyScheduleForWeekDay = monthlySchedules.find(s => 
-                s.staffId === selectedStaff!.id && 
-                s.month === weekDay.getMonth() + 1 && 
-                s.year === weekDay.getFullYear()
-              );
-              
-              if (!monthlyScheduleForWeekDay) {
+          // Only skip if it's a day-off, otherwise overwrite regular schedules
+          if (!existingSchedule || !existingSchedule.isDayOff) {
+            // Find or create monthly schedule for this month/year
+            const weekDayMonth = weekDay.getMonth() + 1;
+            const weekDayYear = weekDay.getFullYear();
+            let monthlyScheduleForWeekDay = monthlySchedules.find(s => 
+              s.staffId === selectedStaff!.id && 
+              s.month === weekDayMonth && 
+              s.year === weekDayYear
+            );
+            
+            if (!monthlyScheduleForWeekDay) {
+              try {
                 monthlyScheduleForWeekDay = await monthlySchedulesAPI.create({
                   staffId: selectedStaff!.id,
-                  month: weekDay.getMonth() + 1,
-                  year: weekDay.getFullYear(),
+                  month: weekDayMonth,
+                  year: weekDayYear,
                   createdBy: user!.id,
                 });
-              }
-              
-              // Create the same schedule for this day
-              const weeklyScheduleData: any = {
-                monthlyScheduleId: monthlyScheduleForWeekDay.id,
-                scheduleDate: weekDay,
-                isDayOff: false,
-                outletId: dailyScheduleData.outletId,
-                timeIn: dailyScheduleData.timeIn,
-                timeOut: dailyScheduleData.timeOut,
-                notes: `Auto-applied from ${formData.scheduleDate.toLocaleDateString()}`,
-              };
-              
-              try {
-                if (existingSchedule) {
-                  // Update existing schedule (overwrite)
-                  await dailySchedulesAPI.update(existingSchedule.id, weeklyScheduleData);
-                } else {
-                  // Create new schedule
-                  await dailySchedulesAPI.create(weeklyScheduleData);
-                }
-                appliedCount++;
               } catch (err) {
-                console.error(`Could not create/update schedule for ${weekDay.toLocaleDateString()}:`, err);
+                console.error(`Failed to create monthly schedule:`, err);
+                continue; // Skip this day if monthly schedule creation fails
               }
+            }
+            
+            // Create the same schedule for this day
+            // Fix timezone issue by creating a date at noon to avoid day shift
+            const normalizedWeekDay = new Date(weekDay);
+            normalizedWeekDay.setHours(12, 0, 0, 0); // Set to noon to avoid timezone issues
+            
+            const weeklyScheduleData: any = {
+              monthlyScheduleId: monthlyScheduleForWeekDay.id,
+              scheduleDate: normalizedWeekDay,
+              isDayOff: false,
+              outletId: dailyScheduleData.outletId,
+              timeIn: dailyScheduleData.timeIn,
+              timeOut: dailyScheduleData.timeOut,
+              notes: `Auto-applied from ${formData.scheduleDate.toLocaleDateString()}`,
+            };
+            
+            try {
+              if (existingSchedule) {
+                // Update existing schedule (overwrite)
+                await dailySchedulesAPI.update(existingSchedule.id, weeklyScheduleData);
+              } else {
+                // Create new schedule
+                await dailySchedulesAPI.create(weeklyScheduleData);
+              }
+              appliedCount++;
+            } catch (err) {
+              console.error(`Could not create/update schedule for ${weekDay.toLocaleDateString()}:`, err);
             }
           }
         }
