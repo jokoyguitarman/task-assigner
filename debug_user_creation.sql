@@ -1,57 +1,61 @@
--- Debug script to check what happened with user creation
+-- Debug user creation issue
+-- Check if user already exists and handle duplicates
 
--- 1. Check if the user exists in auth.users
+-- Check if there are any users with the email from the invitation
 SELECT 
-    'AUTH TABLE' as table_name,
-    id, 
-    email, 
-    created_at,
-    email_confirmed_at,
-    raw_user_meta_data
-FROM auth.users 
-WHERE id = '69b388f9-2f6c-4312-8518-5a76cce5209d'
-
-UNION ALL
-
--- 2. Check if the user exists in public.users
-SELECT 
-    'USERS TABLE' as table_name,
-    id::text, 
-    email, 
-    created_at,
-    NULL as email_confirmed_at,
-    name::jsonb as raw_user_meta_data
-FROM public.users 
-WHERE id = '69b388f9-2f6c-4312-8518-5a76cce5209d';
-
--- 3. Check all recent users in auth table
-SELECT 
-    'Recent auth users' as info,
-    id::text,
-    email,
-    created_at,
-    email_confirmed_at is not null as email_confirmed
-FROM auth.users 
-WHERE created_at > NOW() - INTERVAL '1 hour'
-ORDER BY created_at DESC;
-
--- 4. Check all recent users in public.users table  
-SELECT 
-    'Recent public users' as info,
-    id::text,
+    id,
     email,
     name,
     role,
     created_at
-FROM public.users 
-WHERE created_at > NOW() - INTERVAL '1 hour'
-ORDER BY created_at DESC;
+FROM users 
+WHERE email IN (
+    'jokoyguitarman@yahoo.com',
+    'therestaurateursph@gmail.com'
+);
 
--- 5. Check if triggers exist
+-- Check if there are any auth users with these emails
 SELECT 
-    'Current triggers' as info,
-    trigger_name,
-    event_manipulation,
-    event_object_table
-FROM information_schema.triggers 
-WHERE trigger_name LIKE '%auth_user%';
+    id,
+    email,
+    created_at,
+    email_confirmed_at
+FROM auth.users 
+WHERE email IN (
+    'jokoyguitarman@yahoo.com',
+    'therestaurateursph@gmail.com'
+);
+
+-- Check the invitations to see which ones are being used
+SELECT 
+    id,
+    email,
+    token,
+    role,
+    used_at,
+    created_at
+FROM invitations 
+WHERE email IN (
+    'jokoyguitarman@yahoo.com',
+    'therestaurateursph@gmail.com'
+);
+
+-- If there are duplicate users, we might need to clean them up
+-- This will show any potential conflicts
+SELECT 
+    'users' as table_name,
+    COUNT(*) as count
+FROM users 
+WHERE email IN (
+    'jokoyguitarman@yahoo.com',
+    'therestaurateursph@gmail.com'
+)
+UNION ALL
+SELECT 
+    'auth.users' as table_name,
+    COUNT(*) as count
+FROM auth.users 
+WHERE email IN (
+    'jokoyguitarman@yahoo.com',
+    'therestaurateursph@gmail.com'
+);

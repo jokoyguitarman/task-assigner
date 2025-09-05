@@ -57,13 +57,19 @@ const SignupForm: React.FC = () => {
     try {
       setLoading(true);
       
+      console.log('🔍 Loading invitation data for token:', token);
+      
       // Load invitation and outlets in parallel
       const [invitationData, outletsData] = await Promise.all([
         invitationsAPI.getByToken(token!),
         outletsAPI.getAll(),
       ]);
 
+      console.log('📧 Invitation data result:', invitationData);
+      console.log('🏢 Outlets data result:', outletsData);
+
       if (!invitationData) {
+        console.log('❌ No invitation data found for token:', token);
         setError('Invalid or expired invitation link.');
         setLoading(false);
         return;
@@ -153,49 +159,80 @@ const SignupForm: React.FC = () => {
         throw new Error('Failed to create user account');
       }
 
-      // Create the public user record
-      const { error: userError } = await supabase
+      // Check if user already exists in public.users table
+      const { data: existingUser } = await supabase
         .from('users')
-        .insert({
-          id: authData.user.id,
-          email: invitation.email,
-          name: formData.name,
-          role: formData.role,
-        });
+        .select('id')
+        .eq('id', authData.user.id)
+        .single();
 
-      if (userError) {
-        throw new Error(`Failed to create user profile: ${userError.message}`);
+      // Only create user record if it doesn't exist
+      if (!existingUser) {
+        const { error: userError } = await supabase
+          .from('users')
+          .insert({
+            id: authData.user.id,
+            email: invitation.email,
+            name: formData.name,
+            role: formData.role,
+          });
+
+        if (userError) {
+          throw new Error(`Failed to create user profile: ${userError.message}`);
+        }
+      } else {
+        console.log('User already exists in public.users table, skipping creation');
       }
 
       // Create outlet or staff profile based on role
       if (formData.role === 'outlet') {
-        // Create outlet record
-        const { error: outletError } = await supabase
+        // Check if outlet already exists
+        const { data: existingOutlet } = await supabase
           .from('outlets')
-          .insert({
-            name: formData.name,
-            email: invitation.email,
-            user_id: authData.user.id,
-            is_active: true,
-          });
+          .select('id')
+          .eq('user_id', authData.user.id)
+          .single();
 
-        if (outletError) {
-          throw new Error(`Failed to create outlet profile: ${outletError.message}`);
+        if (!existingOutlet) {
+          const { error: outletError } = await supabase
+            .from('outlets')
+            .insert({
+              name: formData.name,
+              email: invitation.email,
+              user_id: authData.user.id,
+              is_active: true,
+            });
+
+          if (outletError) {
+            throw new Error(`Failed to create outlet profile: ${outletError.message}`);
+          }
+        } else {
+          console.log('Outlet already exists, skipping creation');
         }
       } else if (formData.role === 'staff' && formData.outletId) {
-        // Create staff profile
-        const { error: staffError } = await supabase
+        // Check if staff profile already exists
+        const { data: existingStaff } = await supabase
           .from('staff_profiles')
-          .insert({
-            user_id: authData.user.id,
-            position_id: '1', // Default position - you might want to make this configurable
-            employee_id: `EMP-${Date.now()}`, // Generate a simple employee ID
-            hire_date: new Date().toISOString(),
-            is_active: true,
-          });
+          .select('id')
+          .eq('user_id', authData.user.id)
+          .single();
 
-        if (staffError) {
-          throw new Error(`Failed to create staff profile: ${staffError.message}`);
+        if (!existingStaff) {
+          const { error: staffError } = await supabase
+            .from('staff_profiles')
+            .insert({
+              user_id: authData.user.id,
+              position_id: '1', // Default position - you might want to make this configurable
+              employee_id: `EMP-${Date.now()}`, // Generate a simple employee ID
+              hire_date: new Date().toISOString(),
+              is_active: true,
+            });
+
+          if (staffError) {
+            throw new Error(`Failed to create staff profile: ${staffError.message}`);
+          }
+        } else {
+          console.log('Staff profile already exists, skipping creation');
         }
       }
 
@@ -386,7 +423,3 @@ const SignupForm: React.FC = () => {
 };
 
 export default SignupForm;
-
-
-
-

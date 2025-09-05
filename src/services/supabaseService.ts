@@ -1318,6 +1318,8 @@ export const invitationsAPI = {
       throw new Error('Supabase not configured. Please set environment variables.');
     }
 
+    console.log('🔍 invitationsAPI.getByToken called with token:', token);
+
     const { data, error } = await supabase
       .from('invitations')
       .select(`
@@ -1328,14 +1330,18 @@ export const invitationsAPI = {
       .eq('token', token)
       .single();
 
+    console.log('📊 Supabase response:', { data, error });
+
     if (error) {
       if (error.code === 'PGRST116') {
+        console.log('❌ No invitation found (PGRST116)');
         return null; // No invitation found
       }
       console.error('Error fetching invitation by token:', error);
       throw new Error(`Failed to fetch invitation: ${error.message}`);
     }
 
+    console.log('✅ Invitation found, transforming data');
     return transformInvitation(data);
   },
 
