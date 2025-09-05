@@ -741,6 +741,7 @@ export const outletsAPI = {
     const { data, error } = await supabase
       .from('outlets')
       .select('*')
+      .eq('is_active', true)  // Only fetch active outlets
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -820,13 +821,24 @@ export const outletsAPI = {
       throw new Error('Supabase not configured');
     }
 
-    // Soft delete by setting is_active to false
-    const { error } = await supabase
-      .from('outlets')
-      .update({ is_active: false })
-      .eq('id', id);
+    try {
+      // Check what tables actually reference outlets by running a query first
+      // For now, just try to soft delete the outlet directly
+      const { error } = await supabase
+        .from('outlets')
+        .update({ 
+          is_active: false
+        })
+        .eq('id', id);
 
-    if (error) throw error;
+      if (error) {
+        console.error('Outlet delete error:', error);
+        throw new Error(`Failed to delete outlet: ${error.message}`);
+      }
+    } catch (err) {
+      console.error('Error deleting outlet:', err);
+      throw new Error(`Failed to delete outlet: ${(err as any)?.message || 'Unknown error'}`);
+    }
   },
 };
 
