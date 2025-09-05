@@ -12,6 +12,7 @@ export interface TaskCompletionReport {
   taskId: string;
   taskName: string;
   assignedTo: string;
+  location: string;
   assignedAt: string;
   dueDate: string;
   completedAt?: string;

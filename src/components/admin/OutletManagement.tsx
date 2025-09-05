@@ -34,8 +34,10 @@ import {
 } from '@mui/icons-material';
 import { outletsAPI } from '../../services/supabaseService';
 import { Outlet, OutletFormData } from '../../types';
+import { useAuth } from '../../contexts/AuthContext';
 
 const OutletManagement: React.FC = () => {
+  const { user } = useAuth();
   const [outlets, setOutlets] = useState<Outlet[]>([]);
   const [loading, setLoading] = useState(true);
   const [openDialog, setOpenDialog] = useState(false);
@@ -116,7 +118,7 @@ const OutletManagement: React.FC = () => {
       if (editingOutlet) {
         await outletsAPI.update(editingOutlet.id, formData);
       } else {
-        await outletsAPI.create({ ...formData, isActive: true });
+        await outletsAPI.create({ ...formData, isActive: true, organizationId: user!.organizationId });
       }
 
       await loadOutlets();

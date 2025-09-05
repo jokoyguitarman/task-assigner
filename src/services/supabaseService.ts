@@ -16,6 +16,8 @@ const transformUser = (row: any): User => ({
   email: row.email,
   name: row.name,
   role: row.role,
+  organizationId: row.organization_id,
+  isPrimaryAdmin: row.is_primary_admin || false,
   currentStreak: row.current_streak || 0,
   longestStreak: row.longest_streak || 0,
   lastClearBoardDate: row.last_clear_board_date ? new Date(row.last_clear_board_date) : undefined,
@@ -32,6 +34,7 @@ const transformTask = (row: any): Task => ({
   recurringPattern: row.recurring_pattern,
   scheduledDate: row.scheduled_date ? new Date(row.scheduled_date) : undefined,
   isHighPriority: row.is_high_priority || false,
+  organizationId: row.organization_id,
   createdBy: row.created_by,
   createdAt: new Date(row.created_at),
   updatedAt: new Date(row.updated_at),
@@ -44,6 +47,7 @@ const transformTaskAssignment = (row: any): TaskAssignment => ({
   assignedDate: new Date(row.assigned_date),
   dueDate: new Date(row.due_date),
   outletId: row.outlet_id || undefined,
+  organizationId: row.organization_id,
   status: row.status,
   completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
   completionProof: row.completion_proof,
@@ -80,6 +84,7 @@ const transformOutlet = (row: any): Outlet => ({
   email: row.email,
   managerId: row.manager_id,
   userId: row.user_id,
+  organizationId: row.organization_id,
   isActive: row.is_active,
   createdAt: new Date(row.created_at),
   username: row.username,
@@ -92,6 +97,7 @@ const transformStaffProfile = (row: any): StaffProfile => ({
   positionId: row.position_id,
   employeeId: row.employee_id,
   hireDate: new Date(row.hire_date),
+  organizationId: row.organization_id,
   isActive: row.is_active,
   createdAt: new Date(row.created_at),
   user: row.user ? transformUser(row.user) : undefined,
@@ -103,6 +109,7 @@ const transformMonthlySchedule = (row: any): MonthlySchedule => ({
   staffId: row.staff_id,
   month: row.month,
   year: row.year,
+  organizationId: row.organization_id,
   createdBy: row.created_by,
   createdAt: new Date(row.created_at),
   staff: row.staff ? transformStaffProfile(row.staff) : undefined,
@@ -115,6 +122,7 @@ const transformDailySchedule = (row: any): DailySchedule => {
     monthlyScheduleId: row.monthly_schedule_id,
     scheduleDate: new Date(row.schedule_date),
     outletId: row.outlet_id,
+    organizationId: row.organization_id,
     timeIn: row.time_in,
     timeOut: row.time_out,
     isDayOff: row.is_day_off,
@@ -151,6 +159,7 @@ const transformInvitation = (row: any): Invitation => ({
   email: row.email,
   role: row.role,
   outletId: row.outlet_id || undefined,
+  organizationId: row.organization_id,
   token: row.token,
   expiresAt: new Date(row.expires_at),
   usedAt: row.used_at ? new Date(row.used_at) : undefined,
@@ -263,6 +272,24 @@ export const authAPI = {
 
     return transformUser(userData);
   },
+
+  async getUserById(userId: string): Promise<User | null> {
+    if (!isSupabaseConfigured()) {
+      return null;
+    }
+
+    const { data: userData, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (error || !userData) {
+      return null;
+    }
+
+    return transformUser(userData);
+  },
 };
 
 // Users API
@@ -276,6 +303,25 @@ export const usersAPI = {
       .from('users')
       .select('*')
       .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    return data.map(transformUser);
+  },
+
+  async getByIds(ids: string[]): Promise<User[]> {
+    if (!isSupabaseConfigured()) {
+      return [];
+    }
+
+    if (ids.length === 0) {
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .in('id', ids);
 
     if (error) throw error;
 
@@ -618,6 +664,22 @@ export const assignmentsAPI = {
     return data.map(transformTaskAssignment);
   },
 
+  async getByOutlet(outletId: string): Promise<TaskAssignment[]> {
+    if (!isSupabaseConfigured()) {
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from('task_assignments')
+      .select('*')
+      .eq('outlet_id', outletId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    return data.map(transformTaskAssignment);
+  },
+
   async complete(id: string, completionProof?: string): Promise<TaskAssignment> {
     if (!isSupabaseConfigured()) {
       throw new Error('Supabase not configured');
@@ -842,6 +904,38 @@ export const outletsAPI = {
   },
 };
 
+// Helper function to enrich staff profiles with user data
+const enrichStaffProfilesWithUsers = async (staffProfiles: StaffProfile[]): Promise<StaffProfile[]> => {
+  if (staffProfiles.length === 0) {
+    return staffProfiles;
+  }
+
+  try {
+    // Get unique user IDs from staff profiles
+    const userIds = Array.from(new Set(staffProfiles.map(sp => sp.userId).filter(Boolean)));
+    
+    if (userIds.length === 0) {
+      return staffProfiles;
+    }
+
+    // Fetch user data
+    const users = await usersAPI.getByIds(userIds);
+    
+    // Create a lookup map
+    const userMap = new Map(users.map(user => [user.id, user]));
+    
+    // Enrich staff profiles with user data
+    return staffProfiles.map(sp => ({
+      ...sp,
+      user: userMap.get(sp.userId) || undefined
+    }));
+  } catch (error) {
+    console.error('Error enriching staff profiles with user data:', error);
+    // Return original staff profiles if user data fails to load
+    return staffProfiles;
+  }
+};
+
 // Staff Profiles API
 export const staffProfilesAPI = {
   async getAll(): Promise<StaffProfile[]> {
@@ -853,14 +947,16 @@ export const staffProfilesAPI = {
       .from('staff_profiles')
       .select(`
         *,
-        user:users(*),
         position:staff_positions(*)
       `)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
 
-    return data.map(transformStaffProfile);
+    const staffProfiles = data.map(transformStaffProfile);
+    
+    // Enrich with user data
+    return await enrichStaffProfilesWithUsers(staffProfiles);
   },
 
   async getById(id: string): Promise<StaffProfile> {
@@ -872,7 +968,6 @@ export const staffProfilesAPI = {
       .from('staff_profiles')
       .select(`
         *,
-        user:users(*),
         position:staff_positions(*)
       `)
       .eq('id', id)
@@ -880,7 +975,11 @@ export const staffProfilesAPI = {
 
     if (error) throw error;
 
-    return transformStaffProfile(data);
+    const staffProfile = transformStaffProfile(data);
+    
+    // Enrich with user data
+    const enriched = await enrichStaffProfilesWithUsers([staffProfile]);
+    return enriched[0];
   },
 
   async create(profileData: Omit<StaffProfile, 'id' | 'createdAt'>): Promise<StaffProfile> {
@@ -899,14 +998,17 @@ export const staffProfilesAPI = {
       })
       .select(`
         *,
-        user:users(*),
         position:staff_positions(*)
       `)
       .single();
 
     if (error) throw error;
 
-    return transformStaffProfile(data);
+    const staffProfile = transformStaffProfile(data);
+    
+    // Enrich with user data
+    const enriched = await enrichStaffProfilesWithUsers([staffProfile]);
+    return enriched[0];
   },
 
   async update(id: string, profileData: Partial<Omit<StaffProfile, 'id' | 'createdAt'>>): Promise<StaffProfile> {
@@ -927,14 +1029,17 @@ export const staffProfilesAPI = {
       .eq('id', id)
       .select(`
         *,
-        user:users(*),
         position:staff_positions(*)
       `)
       .single();
 
     if (error) throw error;
 
-    return transformStaffProfile(data);
+    const staffProfile = transformStaffProfile(data);
+    
+    // Enrich with user data
+    const enriched = await enrichStaffProfilesWithUsers([staffProfile]);
+    return enriched[0];
   },
 
   async delete(id: string): Promise<void> {
@@ -1607,8 +1712,17 @@ export const streakAPI = {
       // Check if any tasks are overdue based on due date
       const hasOverdueTasks = data?.some(task => {
         if (task.status === 'overdue') return true;
-        if (task.due_date && new Date(task.due_date) < endOfDay && task.status !== 'completed') {
-          return true;
+        if (task.due_date) {
+          const dueDate = new Date(task.due_date);
+          const today = new Date();
+          
+          // Set both dates to start of day for comparison (ignore time)
+          const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+          const dueDateStart = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+          
+          if (todayStart > dueDateStart && task.status !== 'completed') {
+            return true;
+          }
         }
         return false;
       });

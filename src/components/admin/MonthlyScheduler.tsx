@@ -338,6 +338,7 @@ const MonthlyScheduler: React.FC = () => {
           staffId: selectedStaff!.id,
           month: selectedDateMonth,
           year: selectedDateYear,
+          organizationId: user.organizationId,
           createdBy: user.id,
         });
       }
@@ -410,6 +411,7 @@ const MonthlyScheduler: React.FC = () => {
                   staffId: selectedStaff!.id,
                   month: weekDayMonth,
                   year: weekDayYear,
+                  organizationId: user!.organizationId,
                   createdBy: user!.id,
                 });
               } catch (err) {
@@ -799,6 +801,7 @@ const MonthlyScheduler: React.FC = () => {
                   staffId: staff.id,
                   month: newDate.getMonth() + 1,
                   year: newDate.getFullYear(),
+                  organizationId: user!.organizationId,
                   createdBy: user!.id,
                 });
               }
@@ -870,6 +873,7 @@ const MonthlyScheduler: React.FC = () => {
                 staffId: staff.id,
                 month: newDate.getMonth() + 1,
                 year: newDate.getFullYear(),
+                organizationId: user!.organizationId,
                 createdBy: user!.id,
               });
             }

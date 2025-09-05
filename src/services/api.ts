@@ -13,6 +13,7 @@ let mockUsers: User[] = [
     email: 'admin@taskassigner.com',
     name: 'Admin User',
     role: 'admin',
+    organizationId: '00000000-0000-0000-0000-000000000001',
     currentStreak: 0,
     longestStreak: 0,
     createdAt: new Date(),
@@ -23,6 +24,7 @@ let mockUsers: User[] = [
     email: 'staff1@taskassigner.com',
     name: 'Staff Member 1',
     role: 'staff',
+    organizationId: '00000000-0000-0000-0000-000000000001',
     currentStreak: 0,
     longestStreak: 0,
     createdAt: new Date(),
@@ -33,6 +35,7 @@ let mockUsers: User[] = [
     email: 'staff2@taskassigner.com',
     name: 'Staff Member 2',
     role: 'staff',
+    organizationId: '00000000-0000-0000-0000-000000000001',
     currentStreak: 0,
     longestStreak: 0,
     createdAt: new Date(),
@@ -56,8 +59,8 @@ let mockStaffPositions: StaffPosition[] = [
 ];
 
 let mockOutlets: Outlet[] = [
-  { id: '1', name: 'Main Branch', address: '123 Main St', phone: '+1234567890', isActive: true, createdAt: new Date() },
-  { id: '2', name: 'Downtown Branch', address: '456 Downtown Ave', phone: '+1234567891', isActive: true, createdAt: new Date() },
+  { id: '1', name: 'Main Branch', address: '123 Main St', phone: '+1234567890', organizationId: '00000000-0000-0000-0000-000000000001', isActive: true, createdAt: new Date() },
+  { id: '2', name: 'Downtown Branch', address: '456 Downtown Ave', phone: '+1234567891', organizationId: '00000000-0000-0000-0000-000000000001', isActive: true, createdAt: new Date() },
 ];
 
 let mockStaffProfiles: StaffProfile[] = [];

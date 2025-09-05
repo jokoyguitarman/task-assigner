@@ -43,8 +43,10 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { staffProfilesAPI, staffPositionsAPI, outletsAPI, usersAPI } from '../../services/supabaseService';
 import { StaffProfile, StaffPosition, Outlet, StaffEnrollmentFormData } from '../../types';
+import { useAuth } from '../../contexts/AuthContext';
 
 const StaffEnrollment: React.FC = () => {
+  const { user } = useAuth();
   const [staffProfiles, setStaffProfiles] = useState<StaffProfile[]>([]);
   const [positions, setPositions] = useState<StaffPosition[]>([]);
   const [outlets, setOutlets] = useState<Outlet[]>([]);
@@ -181,6 +183,7 @@ const StaffEnrollment: React.FC = () => {
             email: formData.email || `${employeeId}@company.com`, // Use employee ID if no email
             name: formData.name,
             role: 'staff',
+            organizationId: user!.organizationId,
             currentStreak: 0,
             longestStreak: 0,
           });
@@ -191,6 +194,7 @@ const StaffEnrollment: React.FC = () => {
             positionId: formData.positionId,
             employeeId,
             hireDate: formData.hireDate,
+            organizationId: user!.organizationId,
             isActive: true,
           });
         } catch (error) {

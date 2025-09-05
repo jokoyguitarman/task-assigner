@@ -88,6 +88,7 @@ const TaskForm: React.FC<TaskFormProps> = ({ taskId, onSuccess, onCancel }) => {
         await tasksAPI.create({
           ...data,
           createdBy: user.id,
+          organizationId: user.organizationId,
         });
       }
       onSuccess();

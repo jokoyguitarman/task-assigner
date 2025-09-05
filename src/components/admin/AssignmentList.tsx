@@ -122,7 +122,25 @@ const AssignmentList: React.FC = () => {
   const isAssignmentOverdue = (assignment: TaskAssignment) => {
     const today = new Date();
     const dueDate = new Date(assignment.dueDate);
-    return assignment.status === 'pending' && today > dueDate;
+    
+    // Set both dates to start of day for comparison (ignore time)
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const dueDateStart = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+    
+    // Debug logging for overdue detection
+    if (assignment.taskId && (assignment.taskId.includes('Inventory') || assignment.taskId.includes('Clean'))) {
+      console.log('🔍 AssignmentList Overdue Debug for task:', assignment.taskId, {
+        originalDueDate: assignment.dueDate,
+        parsedDueDate: dueDate,
+        dueDateStart: dueDateStart,
+        today: today,
+        todayStart: todayStart,
+        isOverdue: todayStart > dueDateStart,
+        status: assignment.status
+      });
+    }
+    
+    return assignment.status === 'pending' && todayStart > dueDateStart;
   };
 
   const getStatusColor = (assignment: TaskAssignment) => {

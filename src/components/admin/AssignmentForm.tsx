@@ -21,6 +21,7 @@ import {
   ListItemText,
   ListItemIcon,
   Paper,
+  Autocomplete,
 } from '@mui/material';
 import {
   CheckCircle as CheckCircleIcon,
@@ -43,6 +44,7 @@ import {
   outletsAPI, 
   monthlySchedulesAPI 
 } from '../../services/supabaseService';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface AssignmentFormProps {
   assignmentId?: string;
@@ -51,6 +53,7 @@ interface AssignmentFormProps {
 }
 
 const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess, onCancel }) => {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [staff, setStaff] = useState<User[]>([]);
@@ -229,6 +232,7 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
           assignedDate: new Date(),
           dueDate: cleanedData.dueDate,
           outletId: cleanedData.outletId,
+          organizationId: user!.organizationId,
           status: 'pending',
         });
         console.log('✅ Assignment created successfully');
@@ -371,57 +375,69 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
                   name="staffId"
                   control={control}
                   render={({ field }) => (
-                    <FormControl fullWidth error={!!errors.staffId}>
-                      <InputLabel>Assign to Staff (Optional)</InputLabel>
-                      <Select
-                        {...field}
-                        label="Assign to Staff (Optional)"
-                      >
-                        {staffProfiles.map((staffProfile) => {
-                          const availability = getStaffAvailabilityStatus(staffProfile);
-                          return (
-                            <MenuItem key={staffProfile.id} value={staffProfile.id}>
-                              <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
-                                <Box sx={{ flex: 1 }}>
-                                  <Typography variant="subtitle2">
-                                    {staffProfile.user?.name}
-                                  </Typography>
-                                  <Typography variant="caption" color="text.secondary">
-                                    {staffProfile.position?.name} • {staffProfile.employeeId}
-                                  </Typography>
-                                </Box>
-                                <Box sx={{ ml: 2 }}>
-                                  {availability.status === 'available' && (
-                                    <Chip
-                                      icon={<CheckCircleIcon />}
-                                      label="Available"
-                                      color="success"
-                                      size="small"
-                                    />
-                                  )}
-                                  {availability.status === 'unavailable' && (
-                                    <Chip
-                                      icon={<CancelIcon />}
-                                      label="Unavailable"
-                                      color="error"
-                                      size="small"
-                                    />
-                                  )}
-                                  {availability.status === 'unknown' && (
-                                    <Chip
-                                      icon={<WarningIcon />}
-                                      label="Unknown"
-                                      color="warning"
-                                      size="small"
-                                    />
-                                  )}
-                                </Box>
+                    <Autocomplete
+                      {...field}
+                      options={staffProfiles}
+                      getOptionLabel={(option) => option.user?.name || ''}
+                      value={staffProfiles.find(staff => staff.id === field.value) || null}
+                      onChange={(_, newValue) => {
+                        field.onChange(newValue?.id || '');
+                      }}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="Assign to Staff (Optional)"
+                          placeholder="Type to search staff members..."
+                          error={!!errors.staffId}
+                          helperText="Leave empty to allow all available staff at the outlet to take this task"
+                        />
+                      )}
+                      renderOption={(props, option) => {
+                        const availability = getStaffAvailabilityStatus(option);
+                        return (
+                          <Box component="li" {...props}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+                              <Box sx={{ flex: 1 }}>
+                                <Typography variant="subtitle2">
+                                  {option.user?.name}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {option.position?.name} • {option.employeeId}
+                                </Typography>
                               </Box>
-                            </MenuItem>
-                          );
-                        })}
-                      </Select>
-                    </FormControl>
+                              <Box sx={{ ml: 2 }}>
+                                {availability.status === 'available' && (
+                                  <Chip
+                                    icon={<CheckCircleIcon />}
+                                    label="Available"
+                                    color="success"
+                                    size="small"
+                                  />
+                                )}
+                                {availability.status === 'unavailable' && (
+                                  <Chip
+                                    icon={<CancelIcon />}
+                                    label="Unavailable"
+                                    color="error"
+                                    size="small"
+                                  />
+                                )}
+                                {availability.status === 'unknown' && (
+                                  <Chip
+                                    icon={<WarningIcon />}
+                                    label="Unknown"
+                                    color="warning"
+                                    size="small"
+                                  />
+                                )}
+                              </Box>
+                            </Box>
+                          </Box>
+                        );
+                      }}
+                      isOptionEqualToValue={(option, value) => option.id === value?.id}
+                      noOptionsText="No staff members found"
+                    />
                   )}
                 />
               </Grid>

@@ -39,7 +39,9 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { TaskAssignment, Task, User, StaffProfile, Outlet } from '../../types';
 import { assignmentsAPI, tasksAPI, usersAPI, staffProfilesAPI, outletsAPI } from '../../services/supabaseService';
+import { supabase } from '../../lib/supabase';
 import Leaderboard from './Leaderboard';
+import AssignmentForm from './AssignmentForm';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 
 const AdminDashboard: React.FC = () => {
@@ -53,6 +55,7 @@ const AdminDashboard: React.FC = () => {
   const [assignmentDetailsOpen, setAssignmentDetailsOpen] = useState(false);
   const [selectedAssignmentForDetails, setSelectedAssignmentForDetails] = useState<TaskAssignment | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [showAssignmentForm, setShowAssignmentForm] = useState(false);
 
   useEffect(() => {
     const initializeDashboard = async () => {
@@ -76,11 +79,32 @@ const AdminDashboard: React.FC = () => {
       const today = new Date();
       const overdueAssignments = assignments.filter(assignment => {
         const dueDate = new Date(assignment.dueDate);
-        return assignment.status === 'pending' && today > dueDate;
+        
+        // Set both dates to start of day for comparison (ignore time)
+        const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const dueDateStart = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+        
+        const isOverdue = assignment.status === 'pending' && todayStart > dueDateStart;
+        
+        // Debug logging for overdue updates
+        if (assignment.taskId && (assignment.taskId.includes('Inventory') || assignment.taskId.includes('Clean'))) {
+          console.log('🔄 Update Overdue Debug for task:', assignment.taskId, {
+            originalDueDate: assignment.dueDate,
+            parsedDueDate: dueDate,
+            dueDateStart: dueDateStart,
+            today: today,
+            todayStart: todayStart,
+            isOverdue: isOverdue,
+            status: assignment.status
+          });
+        }
+        
+        return isOverdue;
       });
 
       // Update overdue assignments in the database
       for (const assignment of overdueAssignments) {
+        console.log('📝 Updating assignment to overdue:', assignment.id, assignment.taskId);
         await assignmentsAPI.update(assignment.id, { status: 'overdue' });
       }
 
@@ -95,7 +119,10 @@ const AdminDashboard: React.FC = () => {
 
   const loadData = useCallback(async () => {
     try {
+      console.log('🔄 Admin Dashboard loadData starting...');
       setLoading(true);
+      
+      
       const [assignmentsData, tasksData, staffData, staffProfilesData, outletsData] = await Promise.all([
         assignmentsAPI.getAll(),
         tasksAPI.getAll(),
@@ -103,13 +130,23 @@ const AdminDashboard: React.FC = () => {
         staffProfilesAPI.getAll(),
         outletsAPI.getAll(),
       ]);
+      
+              console.log('✅ Admin Dashboard data loaded:', {
+          assignmentsCount: assignmentsData.length,
+          tasksCount: tasksData.length,
+          staffCount: staffData.length,
+          staffProfilesCount: staffProfilesData.length,
+          outletsCount: outletsData.length
+        });
+        
+      
       setAssignments(assignmentsData);
       setTasks(tasksData);
       setStaff(staffData);
       setStaffProfiles(staffProfilesData);
       setOutlets(outletsData);
     } catch (error) {
-      console.error('Error loading dashboard data:', error);
+      console.error('❌ Error loading dashboard data:', error);
     } finally {
       setLoading(false);
     }
@@ -193,7 +230,25 @@ const AdminDashboard: React.FC = () => {
   const isAssignmentOverdue = (assignment: TaskAssignment) => {
     const today = new Date();
     const dueDate = new Date(assignment.dueDate);
-    return assignment.status === 'pending' && today > dueDate;
+    
+    // Set both dates to start of day for comparison (ignore time)
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const dueDateStart = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+    
+    // Debug logging for overdue detection
+    if (assignment.taskId && assignment.taskId.includes('Inventory') || assignment.taskId.includes('Clean')) {
+      console.log('🔍 Overdue Debug for task:', assignment.taskId, {
+        originalDueDate: assignment.dueDate,
+        parsedDueDate: dueDate,
+        dueDateStart: dueDateStart,
+        today: today,
+        todayStart: todayStart,
+        isOverdue: todayStart > dueDateStart,
+        status: assignment.status
+      });
+    }
+    
+    return assignment.status === 'pending' && todayStart > dueDateStart;
   };
 
   const pendingAssignments = assignments.filter(a => a.status === 'pending' && !isAssignmentOverdue(a));
@@ -204,16 +259,40 @@ const AdminDashboard: React.FC = () => {
     new Date(a.completedAt).toDateString() === new Date().toDateString()
   );
 
-  // Priority tasks (all high priority tasks, not just today)
+  // Today's due tasks (tasks due today + overdue tasks from previous dates)
+  const todayDueTasks = assignments.filter(a => {
+    const today = new Date();
+    const dueDate = new Date(a.dueDate);
+    const isDueToday = dueDate.toDateString() === today.toDateString();
+    const isOverdue = a.status === 'overdue' || isAssignmentOverdue(a);
+    return isDueToday || isOverdue;
+  });
+
+  // Active assignments (pending + rescheduled tasks that need to be completed)
+  const activeAssignments = assignments.filter(a => 
+    a.status === 'pending' || a.status === 'reschedule_requested'
+  );
+
+  // Priority tasks due today or overdue
   const priorityTasksToday = assignments.filter(a => {
     const task = tasks.find(t => t.id === a.taskId);
-    return task?.isHighPriority;
+    if (!task?.isHighPriority) return false;
+    
+    const today = new Date();
+    const dueDate = new Date(a.dueDate);
+    const isDueToday = dueDate.toDateString() === today.toDateString();
+    const isOverdue = a.status === 'overdue' || isAssignmentOverdue(a);
+    return isDueToday || isOverdue;
   });
 
   // Debug logging
   console.log('Dashboard Debug:', {
     totalAssignments: assignments.length,
+    todayDueTasks: todayDueTasks.length,
+    activeAssignments: activeAssignments.length,
+    completedToday: completedToday.length,
     totalTasks: tasks.length,
+    todayDueTasksCount: todayDueTasks.length,
     priorityTasks: priorityTasksToday.length,
     tasksWithPriority: tasks.filter(t => t.isHighPriority).length,
     assignmentsWithPriorityTasks: assignments.filter(a => {
@@ -248,7 +327,7 @@ const AdminDashboard: React.FC = () => {
     );
   }
 
-  const completionRate = assignments.length > 0 ? (completedToday.length / assignments.length) * 100 : 0;
+  const completionRate = todayDueTasks.length > 0 ? (completedToday.length / todayDueTasks.length) * 100 : 0;
 
   return (
     <Box sx={{ p: 3 }}>
@@ -308,7 +387,7 @@ const AdminDashboard: React.FC = () => {
                       Total Tasks
                     </Typography>
                     <Typography variant="h3" fontWeight={700}>
-                      {tasks.length}
+                      {todayDueTasks.length}
                     </Typography>
                   </Box>
                   <Avatar sx={{ bgcolor: 'rgba(255, 255, 255, 0.2)', width: 56, height: 56 }}>
@@ -540,14 +619,14 @@ const AdminDashboard: React.FC = () => {
                     >
                       Update Overdue
                     </Button>
-                    <Button
-                      variant="contained"
-                      startIcon={<Add />}
-                      onClick={() => navigate('/assignments/new')}
-                      sx={{ borderRadius: 2 }}
-                    >
-                      New Assignment
-                    </Button>
+                  <Button
+                    variant="contained"
+                    startIcon={<Add />}
+                      onClick={() => setShowAssignmentForm(true)}
+                    sx={{ borderRadius: 2 }}
+                  >
+                    New Assignment
+                  </Button>
                   </Box>
                 </Box>
                 
@@ -588,9 +667,9 @@ const AdminDashboard: React.FC = () => {
                           <ListItemText
                             primary={
                               <Box display="flex" alignItems="center" gap={1}>
-                                <Typography variant="subtitle1" fontWeight={600}>
+                              <Typography variant="subtitle1" fontWeight={600}>
                                   {getTaskTitle(assignment.taskId)}
-                                </Typography>
+                              </Typography>
                                 {getTaskPriority(assignment.taskId) && (
                                   <Chip
                                     label="High Priority"
@@ -670,7 +749,7 @@ const AdminDashboard: React.FC = () => {
                     />
                   </Box>
                   <Typography variant="body2" color="text.secondary">
-                    {completedToday.length} of {assignments.length} tasks completed
+                    {completedToday.length} of {todayDueTasks.length} tasks completed
                   </Typography>
                 </CardContent>
               </Card>
@@ -895,6 +974,22 @@ const AdminDashboard: React.FC = () => {
             View All Assignments
           </Button>
         </DialogActions>
+      </Dialog>
+
+      {/* Assignment Form Dialog */}
+      <Dialog 
+        open={showAssignmentForm} 
+        onClose={() => setShowAssignmentForm(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <AssignmentForm
+          onCancel={() => setShowAssignmentForm(false)}
+          onSuccess={() => {
+            setShowAssignmentForm(false);
+            loadData(); // Refresh the assignments list
+          }}
+        />
       </Dialog>
     </Box>
   );

@@ -9,6 +9,7 @@ import LoginForm from './components/auth/LoginForm';
 import AdminSignup from './components/auth/AdminSignup';
 import SignupForm from './components/auth/SignupForm';
 import StaffOutletAuth from './components/auth/StaffOutletAuth';
+import RestaurantSignup from './components/auth/RestaurantSignup';
 import AdminDashboard from './components/admin/Dashboard';
 import TaskList from './components/admin/TaskList';
 import AssignmentList from './components/admin/AssignmentList';
@@ -168,18 +169,24 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; requiredRole?: 'admi
 }) => {
   const { user, isLoading } = useAuth();
 
+  console.log('🛡️ ProtectedRoute - isLoading:', isLoading, 'user:', user?.id);
+
   if (isLoading) {
+    console.log('🛡️ ProtectedRoute - Showing loading screen');
     return <div>Loading...</div>;
   }
 
   if (!user) {
+    console.log('🛡️ ProtectedRoute - No user, redirecting to login');
     return <Navigate to="/login" replace />;
   }
 
   if (requiredRole && user.role !== requiredRole) {
+    console.log('🛡️ ProtectedRoute - Wrong role, redirecting to dashboard');
     return <Navigate to="/dashboard" replace />;
   }
 
+  console.log('🛡️ ProtectedRoute - Rendering AppLayout');
   return <AppLayout>{children}</AppLayout>;
 };
 
@@ -212,7 +219,9 @@ const StaffRoutes: React.FC = () => (
 
 // Main App Routes Component
 const AppRoutes: React.FC = () => {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
+
+  console.log('🛣️ AppRoutes - isLoading:', isLoading, 'user:', user?.id, 'role:', user?.role);
 
   return (
     <Routes>
@@ -220,6 +229,7 @@ const AppRoutes: React.FC = () => {
       <Route path="/admin-signup" element={<AdminSignup />} />
       <Route path="/signup" element={<SignupForm />} />
       <Route path="/staff-signup" element={<StaffOutletAuth />} />
+      <Route path="/restaurant-signup" element={<RestaurantSignup />} />
       <Route 
         path="/*" 
         element={

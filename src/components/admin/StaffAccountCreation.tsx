@@ -184,6 +184,7 @@ const StaffAccountCreation: React.FC = () => {
           positionId: formData.positionId,
           employeeId: employeeId,
           hireDate: formData.hireDate,
+          organizationId: user.organizationId,
           isActive: true,
         });
         

@@ -51,8 +51,8 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { exportService, TaskCompletionReport } from '../../services/exportService';
-import { assignmentsAPI, tasksAPI, usersAPI, staffProfilesAPI } from '../../services/supabaseService';
-import { TaskAssignment, Task, User, StaffProfile } from '../../types';
+import { assignmentsAPI, tasksAPI, usersAPI, staffProfilesAPI, outletsAPI } from '../../services/supabaseService';
+import { TaskAssignment, Task, User, StaffProfile, Outlet } from '../../types';
 
 const TaskCompletionReports: React.FC = () => {
   const [reportData, setReportData] = useState<TaskCompletionReport[]>([]);
@@ -60,10 +60,15 @@ const TaskCompletionReports: React.FC = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [staffProfiles, setStaffProfiles] = useState<StaffProfile[]>([]);
+  const [outlets, setOutlets] = useState<Outlet[]>([]);
   const [loading, setLoading] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  
+  // Sorting state
+  const [sortField, setSortField] = useState<keyof TaskCompletionReport | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   
   // Filter states
   const [dateRange, setDateRange] = useState<'daily' | 'weekly' | 'monthly' | 'custom'>('monthly');
@@ -71,6 +76,7 @@ const TaskCompletionReports: React.FC = () => {
   const [endDate, setEndDate] = useState<Date>(new Date());
   const [selectedStaff, setSelectedStaff] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
+  const [selectedLocation, setSelectedLocation] = useState<string>('all');
   
   // Dialog states
   const [openPreview, setOpenPreview] = useState(false);
@@ -84,27 +90,75 @@ const TaskCompletionReports: React.FC = () => {
     if (assignments.length > 0) {
       generateReport();
     }
-  }, [assignments, dateRange, startDate, endDate, selectedStaff, selectedStatus]);
+  }, [assignments, dateRange, startDate, endDate, selectedStaff, selectedStatus, selectedLocation]);
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const [assignmentsData, tasksData, usersData, staffProfilesData] = await Promise.all([
+      const [assignmentsData, tasksData, usersData, staffProfilesData, outletsData] = await Promise.all([
         assignmentsAPI.getAll(),
         tasksAPI.getAll(),
         usersAPI.getAll(),
         staffProfilesAPI.getAll(),
+        outletsAPI.getAll(),
       ]);
       
       setAssignments(assignmentsData);
       setTasks(tasksData);
       setUsers(usersData);
       setStaffProfiles(staffProfilesData);
+      setOutlets(outletsData);
     } catch (err) {
       setError('Failed to load data');
     } finally {
       setLoading(false);
     }
+  };
+
+  // Sorting functions
+  const handleSort = (field: keyof TaskCompletionReport) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const getSortIcon = (field: keyof TaskCompletionReport) => {
+    if (sortField !== field) return '↕️';
+    return sortDirection === 'asc' ? '↑' : '↓';
+  };
+
+  const sortData = (data: TaskCompletionReport[]) => {
+    if (!sortField) return data;
+    
+    return [...data].sort((a, b) => {
+      let aValue: any = a[sortField];
+      let bValue: any = b[sortField];
+      
+      // Handle undefined values
+      if (aValue === undefined) aValue = '';
+      if (bValue === undefined) bValue = '';
+      
+      // Handle date fields
+      if (sortField === 'assignedAt' || sortField === 'dueDate' || sortField === 'completedAt') {
+        const aTime = aValue ? new Date(aValue as string).getTime() : 0;
+        const bTime = bValue ? new Date(bValue as string).getTime() : 0;
+        aValue = aTime;
+        bValue = bTime;
+      }
+      
+      // Handle string fields
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        aValue = aValue.toLowerCase();
+        bValue = bValue.toLowerCase();
+      }
+      
+      if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
   };
 
   const generateReport = () => {
@@ -154,16 +208,23 @@ const TaskCompletionReports: React.FC = () => {
         filteredAssignments = filteredAssignments.filter(assignment => assignment.status === selectedStatus);
       }
 
+      // Filter by location
+      if (selectedLocation !== 'all') {
+        filteredAssignments = filteredAssignments.filter(assignment => assignment.outletId === selectedLocation);
+      }
+
       // Transform to report format
       const reportData: TaskCompletionReport[] = filteredAssignments.map(assignment => {
         const task = tasks.find(t => t.id === assignment.taskId);
         const staffProfile = staffProfiles.find(sp => sp.id === assignment.staffId);
         const user = staffProfile ? users.find(u => u.id === staffProfile.userId) : null;
+        const outlet = outlets.find(o => o.id === assignment.outletId);
         
         return {
           taskId: assignment.id,
           taskName: task?.title || 'Unknown Task',
           assignedTo: user?.name || staffProfile?.user?.name || 'Unknown User',
+          location: outlet?.name || 'Unknown Location',
           assignedAt: assignment.assignedDate.toISOString(),
           dueDate: assignment.dueDate.toISOString(),
           completedAt: assignment.completedAt?.toISOString(),
@@ -399,6 +460,24 @@ const TaskCompletionReports: React.FC = () => {
                     </Select>
                   </FormControl>
                 </Grid>
+
+                <Grid item xs={12} sm={6} md={3}>
+                  <FormControl fullWidth>
+                    <InputLabel>Location</InputLabel>
+                    <Select
+                      value={selectedLocation}
+                      onChange={(e) => setSelectedLocation(e.target.value)}
+                      label="Location"
+                    >
+                      <MenuItem value="all">All Locations</MenuItem>
+                      {outlets.map(outlet => (
+                        <MenuItem key={outlet.id} value={outlet.id}>
+                          {outlet.name}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
               </Grid>
             </CardContent>
           </Card>
@@ -484,15 +563,66 @@ const TaskCompletionReports: React.FC = () => {
                   <Table>
                     <TableHead>
                       <TableRow sx={{ background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)' }}>
-                        <TableCell><strong>Task</strong></TableCell>
-                        <TableCell><strong>Assigned To</strong></TableCell>
-                        <TableCell><strong>Due Date</strong></TableCell>
-                        <TableCell><strong>Status</strong></TableCell>
+                        <TableCell 
+                          sx={{ cursor: 'pointer', userSelect: 'none' }}
+                          onClick={() => handleSort('taskName')}
+                        >
+                          <Box display="flex" alignItems="center" gap={1}>
+                            <strong>Task</strong>
+                            <Typography variant="caption" sx={{ opacity: 0.7 }}>
+                              {getSortIcon('taskName')}
+                            </Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell 
+                          sx={{ cursor: 'pointer', userSelect: 'none' }}
+                          onClick={() => handleSort('assignedTo')}
+                        >
+                          <Box display="flex" alignItems="center" gap={1}>
+                            <strong>Assigned To</strong>
+                            <Typography variant="caption" sx={{ opacity: 0.7 }}>
+                              {getSortIcon('assignedTo')}
+                            </Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell 
+                          sx={{ cursor: 'pointer', userSelect: 'none' }}
+                          onClick={() => handleSort('location')}
+                        >
+                          <Box display="flex" alignItems="center" gap={1}>
+                            <strong>Location</strong>
+                            <Typography variant="caption" sx={{ opacity: 0.7 }}>
+                              {getSortIcon('location')}
+                            </Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell 
+                          sx={{ cursor: 'pointer', userSelect: 'none' }}
+                          onClick={() => handleSort('dueDate')}
+                        >
+                          <Box display="flex" alignItems="center" gap={1}>
+                            <strong>Due Date</strong>
+                            <Typography variant="caption" sx={{ opacity: 0.7 }}>
+                              {getSortIcon('dueDate')}
+                            </Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell 
+                          sx={{ cursor: 'pointer', userSelect: 'none' }}
+                          onClick={() => handleSort('status')}
+                        >
+                          <Box display="flex" alignItems="center" gap={1}>
+                            <strong>Status</strong>
+                            <Typography variant="caption" sx={{ opacity: 0.7 }}>
+                              {getSortIcon('status')}
+                            </Typography>
+                          </Box>
+                        </TableCell>
                         <TableCell><strong>Proof Files</strong></TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {reportData.map((row, index) => (
+                      {sortData(reportData).map((row, index) => (
                         <Slide key={row.taskId} direction="up" in timeout={300 + index * 50}>
                           <TableRow hover>
                             <TableCell>
@@ -505,6 +635,11 @@ const TaskCompletionReports: React.FC = () => {
                                 <PersonIcon sx={{ mr: 1, fontSize: 16 }} />
                                 {row.assignedTo}
                               </Box>
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2" color="primary">
+                                {row.location}
+                              </Typography>
                             </TableCell>
                             <TableCell>
                               {new Date(row.dueDate).toLocaleDateString()}

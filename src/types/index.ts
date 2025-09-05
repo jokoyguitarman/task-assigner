@@ -3,6 +3,8 @@ export interface User {
   email: string;
   name: string;
   role: 'admin' | 'staff' | 'outlet';
+  organizationId: string;
+  isPrimaryAdmin?: boolean;
   currentStreak: number;
   longestStreak: number;
   lastClearBoardDate?: Date;
@@ -19,6 +21,7 @@ export interface Task {
   recurringPattern?: 'daily' | 'weekly' | 'monthly';
   scheduledDate?: Date;
   isHighPriority: boolean;
+  organizationId: string;
   createdAt: Date;
   updatedAt: Date;
   createdBy: string; // Admin user ID
@@ -31,6 +34,7 @@ export interface TaskAssignment {
   assignedDate: Date;
   dueDate: Date;
   outletId?: string;
+  organizationId: string;
   status: 'pending' | 'completed' | 'overdue' | 'reschedule_requested';
   completedAt?: Date;
   completionProof?: string; // URL to photo/video
@@ -69,6 +73,8 @@ export interface AuthContextType {
   // Outlet-specific data
   currentOutlet?: Outlet | null;
   isOutletUser: boolean;
+  // Organization data
+  organization?: Organization | null;
 }
 
 export interface TaskFormData {
@@ -107,6 +113,7 @@ export interface Outlet {
   email?: string;
   managerId?: string;
   userId?: string; // Link to auth.users for outlet login
+  organizationId: string;
   isActive: boolean;
   createdAt: Date;
   // Login credentials for outlet access
@@ -120,6 +127,7 @@ export interface StaffProfile {
   positionId: string;
   employeeId: string;
   hireDate: Date;
+  organizationId: string;
   isActive: boolean;
   createdAt: Date;
   // Login credentials for staff access
@@ -135,6 +143,7 @@ export interface MonthlySchedule {
   staffId: string;
   month: number; // 1-12
   year: number;
+  organizationId: string;
   createdBy: string;
   createdAt: Date;
   // Populated fields
@@ -147,6 +156,7 @@ export interface DailySchedule {
   monthlyScheduleId: string;
   scheduleDate: Date;
   outletId: string;
+  organizationId: string;
   timeIn?: string; // HH:MM format
   timeOut?: string; // HH:MM format
   isDayOff: boolean;
@@ -207,6 +217,7 @@ export interface Invitation {
   email: string;
   role: 'staff' | 'outlet';
   outletId?: string;
+  organizationId: string;
   token: string;
   expiresAt: Date;
   usedAt?: Date;
@@ -230,4 +241,48 @@ export interface SignupFormData {
   confirmPassword: string;
   role: 'staff' | 'outlet';
   outletId?: string;
+}
+
+// Organization Types
+export interface Organization {
+  id: string;
+  name: string;
+  domain?: string;
+  subscriptionTier: 'free' | 'standard' | 'professional';
+  subscriptionStatus: 'active' | 'trial' | 'expired';
+  maxAdmins: number;
+  maxRestaurants: number;
+  maxEmployees: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface TierLimits {
+  maxAdmins: number;
+  maxRestaurants: number;
+  maxEmployees: number;
+  currentAdmins: number;
+  currentRestaurants: number;
+  currentEmployees: number;
+  subscriptionTier: string;
+}
+
+export interface UsageStats {
+  adminsUsed: number;
+  adminsMax: number;
+  restaurantsUsed: number;
+  restaurantsMax: number;
+  employeesUsed: number;
+  employeesMax: number;
+  subscriptionTier: string;
+}
+
+export interface RestaurantSignupData {
+  restaurantName: string;
+  restaurantAddress: string;
+  restaurantPhone: string;
+  adminName: string;
+  adminEmail: string;
+  adminPassword: string;
+  confirmPassword: string;
 }

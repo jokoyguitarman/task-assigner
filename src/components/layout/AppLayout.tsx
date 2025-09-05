@@ -32,6 +32,7 @@ import {
   Schedule,
 } from '@mui/icons-material';
 import NotificationBell from '../common/NotificationBell';
+import UsageStats from './UsageStats';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { realtimeService } from '../../services/realtimeService';
@@ -198,6 +199,13 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
           </Box>
         </Box>
       </Box>
+
+      {/* Usage Stats - Only show for admin users */}
+      {user?.role === 'admin' && (
+        <Box sx={{ p: 2 }}>
+          <UsageStats />
+        </Box>
+      )}
 
       {/* Navigation */}
       <Box sx={{ flex: 1, overflow: 'auto' }}>

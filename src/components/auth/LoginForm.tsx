@@ -217,18 +217,33 @@ const LoginForm: React.FC = () => {
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                       Don't have an account yet?
                     </Typography>
-                    <Button
-                      variant="outlined"
-                      onClick={() => navigate('/admin-signup')}
-                      sx={{
-                        textTransform: 'none',
-                        borderRadius: 2,
-                        px: 3,
-                        py: 1,
-                      }}
-                    >
-                      Create Admin Account
-                    </Button>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                      <Button
+                        variant="contained"
+                        onClick={() => navigate('/restaurant-signup')}
+                        sx={{
+                          textTransform: 'none',
+                          borderRadius: 2,
+                          px: 3,
+                          py: 1,
+                          mb: 1,
+                        }}
+                      >
+                        Start Your Restaurant
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        onClick={() => navigate('/admin-signup')}
+                        sx={{
+                          textTransform: 'none',
+                          borderRadius: 2,
+                          px: 3,
+                          py: 1,
+                        }}
+                      >
+                        Create Admin Account
+                      </Button>
+                    </Box>
                   </Box>
 
                   <Divider sx={{ my: 3 }}>

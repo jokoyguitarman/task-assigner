@@ -24,6 +24,8 @@ import {
   IconButton,
   Tooltip,
   Alert,
+  Autocomplete,
+  TextField,
 } from '@mui/material';
 import {
   Assignment,
@@ -47,7 +49,9 @@ import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import RescheduleRequestDialog from './RescheduleRequestDialog';
 
 const StaffDashboard: React.FC = () => {
+  console.log('🏗️ StaffDashboard component mounting/rendering');
   const { user, currentOutlet, isOutletUser } = useAuth();
+  console.log('🔐 Auth context values:', { user: !!user, currentOutlet: !!currentOutlet, isOutletUser });
   const [assignments, setAssignments] = useState<TaskAssignment[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [unassignedTasks, setUnassignedTasks] = useState<TaskAssignment[]>([]);
@@ -70,15 +74,35 @@ const StaffDashboard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    console.log('🚀 StaffDashboard useEffect triggered');
+    console.log('🔍 Current state:', { 
+      user: !!user, 
+      userEmail: user?.email,
+      isOutletUser, 
+      currentOutlet: currentOutlet?.id,
+      loading 
+    });
+    
     const loadData = async () => {
-      if (!user) return;
+      if (!user) {
+        console.log('❌ No user found, skipping data load');
+        return;
+      }
       
       console.log('🔄 Starting data load for user:', user.id);
+      console.log('🔍 User details:', { 
+        id: user.id, 
+        email: user.email, 
+        isOutletUser, 
+        currentOutlet: currentOutlet?.id 
+      });
       
       try {
         setError(null);
+        setLoading(true);
         
         console.log('📊 Loading main data...');
+        console.log('🔐 Staff user:', user?.id, user?.email, user?.role);
         const [tasksData, allAssignments, usersData, outletsData, streakData, staffProfilesData] = await Promise.all([
           tasksAPI.getAll(),
           assignmentsAPI.getAll(),
@@ -88,7 +112,16 @@ const StaffDashboard: React.FC = () => {
           staffProfilesAPI.getAll(),
         ]);
         
-        console.log('✅ Main data loaded, setting state...');
+        console.log('✅ Main data loaded successfully:', {
+          tasksCount: tasksData.length,
+          assignmentsCount: allAssignments.length,
+          usersCount: usersData.length,
+          outletsCount: outletsData.length,
+          staffProfilesCount: staffProfilesData.length,
+          streakData
+        });
+        
+        
         setTasks(tasksData);
         setUsers(usersData);
         setOutlets(outletsData);
@@ -100,17 +133,17 @@ const StaffDashboard: React.FC = () => {
         if (isOutletUser && currentOutlet) {
           console.log('🏪 Loading data for outlet user, outlet:', currentOutlet.id);
           
-          // Filter assignments for this outlet (only assigned tasks)
+          // Show ALL assignments for this outlet (both assigned and unassigned)
           const outletAssignments = allAssignments.filter(assignment => 
-            assignment.outletId === currentOutlet.id && assignment.staffId
+            assignment.outletId === currentOutlet.id
           );
           
+          console.log('🏪 All outlet assignments found:', outletAssignments.length);
           setAssignments(outletAssignments);
           
           // Filter unassigned tasks for this outlet
-          const unassigned = allAssignments.filter(assignment =>
-            !assignment.staffId && assignment.outletId === currentOutlet.id
-          );
+          const unassigned = outletAssignments.filter(assignment => !assignment.staffId);
+          console.log('🏪 Unassigned tasks found:', unassigned.length);
           setUnassignedTasks(unassigned);
           
         } else {
@@ -134,12 +167,14 @@ const StaffDashboard: React.FC = () => {
           }
 
           const assignmentsData = await assignmentsAPI.getByStaff(currentStaffProfile.id);
+          console.log('👤 Staff assignments found:', assignmentsData.length);
           setAssignments(assignmentsData);
           
           // Filter unassigned tasks
           const unassigned = allAssignments.filter(assignment =>
             !assignment.staffId
           );
+          console.log('👤 Unassigned tasks found:', unassigned.length);
         setUnassignedTasks(unassigned);
         }
         
@@ -169,9 +204,15 @@ const StaffDashboard: React.FC = () => {
     };
 
     if (user) {
+      console.log('👤 User exists, calling loadData()');
       loadData();
+    } else {
+      console.log('❌ No user, not calling loadData()');
     }
   }, [user, currentOutlet, isOutletUser]);
+  
+  console.log('🔄 StaffDashboard render - assignments:', assignments.length, 'unassigned:', unassignedTasks.length);
+  console.log('🔍 useEffect dependencies:', { user: !!user, currentOutlet: !!currentOutlet, isOutletUser });
 
   // Auto-refresh when data changes
   useAutoRefresh({ 
@@ -193,13 +234,12 @@ const StaffDashboard: React.FC = () => {
         setLongestStreak(streakData.longestStreak);
         
         if (isOutletUser && currentOutlet) {
+          // Show ALL assignments for this outlet (both assigned and unassigned)
           const outletAssignments = allAssignments.filter(assignment => 
-            assignment.outletId === currentOutlet.id && assignment.staffId
+            assignment.outletId === currentOutlet.id
           );
           setAssignments(outletAssignments);
-          const unassigned = allAssignments.filter(assignment =>
-            !assignment.staffId && assignment.outletId === currentOutlet.id
-          );
+          const unassigned = outletAssignments.filter(assignment => !assignment.staffId);
           setUnassignedTasks(unassigned);
         } else {
           let currentStaffProfile = null;
@@ -1387,62 +1427,48 @@ const StaffDashboard: React.FC = () => {
         </DialogTitle>
         <DialogContent>
           <Box sx={{ pt: 2 }}>
-            <FormControl fullWidth>
-              <InputLabel>Select Team Member</InputLabel>
-              <Select
-                value={selectedStaffId}
-                onChange={(e) => setSelectedStaffId(e.target.value)}
-                label="Select Team Member"
-              >
-                {allStaffProfiles.length === 0 ? (
-                  <MenuItem disabled>
-                    <Typography variant="body2" color="text.secondary">
-                      No staff members available
-                    </Typography>
-                  </MenuItem>
-                ) : allStaffProfiles
-                  .filter(profile => {
-                    console.log('🔍 Debug - checking profile:', profile.id, 'isActive:', profile.isActive, 'user:', profile.user);
-                    if (!profile.isActive) return false;
-                    // If outlet user, only show staff from the same outlet
-                    // Note: We'll need to implement outlet assignment for staff later
-                    // For now, show all active staff
-                    return true;
-                  })
-                  .length === 0 ? (
-                  <MenuItem disabled>
-                    <Typography variant="body2" color="text.secondary">
-                      No active staff members available
-                    </Typography>
-                  </MenuItem>
-                ) : allStaffProfiles
-                  .filter(profile => {
-                    console.log('🔍 Debug - checking profile:', profile.id, 'isActive:', profile.isActive, 'user:', profile.user);
-                    if (!profile.isActive) return false;
-                    // If outlet user, only show staff from the same outlet
-                    // Note: We'll need to implement outlet assignment for staff later
-                    // For now, show all active staff
-                    return true;
-                  })
-                  .map((profile) => (
-                    <MenuItem key={profile.id} value={profile.id}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Avatar sx={{ width: 32, height: 32 }}>
-                          {(profile.user?.name || profile.employeeId).charAt(0)}
-                        </Avatar>
-                        <Box>
-                          <Typography variant="subtitle2">
-                            {profile.user?.name || 'Unknown Staff'}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {profile.position?.name} • {profile.employeeId}
-                          </Typography>
-                        </Box>
-                      </Box>
-                    </MenuItem>
-                  ))}
-              </Select>
-            </FormControl>
+            <Autocomplete
+              options={allStaffProfiles.filter(profile => {
+                console.log('🔍 Debug - checking profile:', profile.id, 'isActive:', profile.isActive, 'user:', profile.user);
+                if (!profile.isActive) return false;
+                // If outlet user, only show staff from the same outlet
+                // Note: We'll need to implement outlet assignment for staff later
+                // For now, show all active staff
+                return true;
+              })}
+              getOptionLabel={(option) => option.user?.name || 'Unknown Staff'}
+              value={allStaffProfiles.find(profile => profile.id === selectedStaffId) || null}
+              onChange={(_, newValue) => {
+                setSelectedStaffId(newValue?.id || '');
+              }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Select Team Member"
+                  placeholder="Type to search team members..."
+                  helperText="Search by name, position, or employee ID"
+                />
+              )}
+              renderOption={(props, option) => (
+                <Box component="li" {...props}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <Avatar sx={{ width: 32, height: 32 }}>
+                      {(option.user?.name || option.employeeId).charAt(0)}
+                    </Avatar>
+                    <Box>
+                      <Typography variant="subtitle2">
+                        {option.user?.name || 'Unknown Staff'}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {option.position?.name} • {option.employeeId}
+                      </Typography>
+                    </Box>
+                  </Box>
+                </Box>
+              )}
+              isOptionEqualToValue={(option, value) => option.id === value?.id}
+              noOptionsText="No team members found"
+            />
           </Box>
         </DialogContent>
         <DialogActions>
