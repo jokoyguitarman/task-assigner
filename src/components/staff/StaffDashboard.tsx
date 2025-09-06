@@ -26,6 +26,7 @@ import {
   Alert,
   Autocomplete,
   TextField,
+  CircularProgress,
 } from '@mui/material';
 import {
   Assignment,
@@ -44,7 +45,7 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { TaskAssignment, Task, StaffProfile, User, Outlet } from '../../types';
-import { assignmentsAPI, tasksAPI, staffProfilesAPI, usersAPI, outletsAPI, streakAPI } from '../../services/supabaseService';
+import { assignmentsAPI, tasksAPI, staffProfilesAPI, usersAPI, outletsAPI, streakAPI, monthlySchedulesAPI } from '../../services/supabaseService';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import RescheduleRequestDialog from './RescheduleRequestDialog';
 
@@ -63,6 +64,8 @@ const StaffDashboard: React.FC = () => {
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string>('');
   const [selectedStaffId, setSelectedStaffId] = useState<string>('');
+  const [availableStaffForAssignment, setAvailableStaffForAssignment] = useState<StaffProfile[]>([]);
+  const [loadingAvailableStaff, setLoadingAvailableStaff] = useState(false);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [assignmentToView, setAssignmentToView] = useState<TaskAssignment | null>(null);
   const [selectedAssignee, setSelectedAssignee] = useState<string>('all');
@@ -72,6 +75,7 @@ const StaffDashboard: React.FC = () => {
   const [rescheduleDialogOpen, setRescheduleDialogOpen] = useState(false);
   const [assignmentToReschedule, setAssignmentToReschedule] = useState<TaskAssignment | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   useEffect(() => {
     console.log('🚀 StaffDashboard useEffect triggered');
@@ -139,12 +143,11 @@ const StaffDashboard: React.FC = () => {
           );
           
           console.log('🏪 All outlet assignments found:', outletAssignments.length);
-          setAssignments(outletAssignments);
           
-          // Filter unassigned tasks for this outlet
-          const unassigned = outletAssignments.filter(assignment => !assignment.staffId);
-          console.log('🏪 Unassigned tasks found:', unassigned.length);
-          setUnassignedTasks(unassigned);
+          // For outlet users, only set assignments (don't set unassignedTasks separately)
+          // This prevents duplication in the display logic
+          setAssignments(outletAssignments);
+          setUnassignedTasks([]); // Clear unassigned tasks to prevent duplication
           
         } else {
           // For staff users, get their profile first
@@ -266,16 +269,35 @@ const StaffDashboard: React.FC = () => {
     }
   });
 
-  const handleTakeTask = (assignmentId: string) => {
+  const handleTakeTask = async (assignmentId: string) => {
     setSelectedAssignmentId(assignmentId);
     setSelectedStaffId('');
+    setLoadingAvailableStaff(true);
     setAssignDialogOpen(true);
+    
+    try {
+      const availableStaff = await getAvailableStaffForAssignment(assignmentId);
+      setAvailableStaffForAssignment(availableStaff);
+    } catch (error) {
+      console.error('Error loading available staff:', error);
+      // Fallback to all active staff
+      setAvailableStaffForAssignment(allStaffProfiles.filter(profile => profile.isActive));
+    } finally {
+      setLoadingAvailableStaff(false);
+    }
   };
 
   const handleConfirmAssignment = async () => {
     if (!selectedStaffId || !selectedAssignmentId) return;
     
     try {
+      setError(null);
+      setSuccessMessage(null);
+      
+      // Get the selected staff member's name for the success message
+      const selectedStaff = availableStaffForAssignment.find(staff => staff.id === selectedStaffId);
+      const staffName = selectedStaff?.user?.name || 'Unknown Staff';
+      
       await assignmentsAPI.update(selectedAssignmentId, {
         staffId: selectedStaffId,
       });
@@ -300,12 +322,24 @@ const StaffDashboard: React.FC = () => {
         setUnassignedTasks(unassigned);
       }
       
+      // Show success message
+      setSuccessMessage(`Task successfully assigned to ${staffName}!`);
+      
       // Close dialog
       setAssignDialogOpen(false);
       setSelectedAssignmentId('');
       setSelectedStaffId('');
+      setAvailableStaffForAssignment([]);
+      setLoadingAvailableStaff(false);
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => {
+        setSuccessMessage(null);
+      }, 3000);
+      
     } catch (error) {
       console.error('Error assigning task:', error);
+      setError('Failed to assign task. Please try again.');
     }
   };
 
@@ -313,6 +347,8 @@ const StaffDashboard: React.FC = () => {
     setAssignDialogOpen(false);
     setSelectedAssignmentId('');
     setSelectedStaffId('');
+    setAvailableStaffForAssignment([]);
+    setLoadingAvailableStaff(false);
   };
 
   const getTaskTitle = (taskId: string) => {
@@ -346,6 +382,107 @@ const StaffDashboard: React.FC = () => {
   const getOutletName = (assignment: TaskAssignment) => {
     const outlet = outlets.find(o => o.id === assignment.outletId);
     return outlet ? outlet.name : 'Unknown Outlet';
+  };
+
+  // Filter available staff for assignment based on outlet and schedule
+  const getAvailableStaffForAssignment = async (assignmentId: string) => {
+    try {
+      const assignment = assignments.find(a => a.id === assignmentId);
+      if (!assignment) {
+        console.log('❌ No assignment found for ID:', assignmentId);
+        return [];
+      }
+
+      console.log('🔍 Filtering staff for assignment:', {
+        assignmentId,
+        outletId: assignment.outletId,
+        dueDate: assignment.dueDate
+      });
+
+      // Get staff profiles assigned to the same outlet
+      const outletStaff = allStaffProfiles.filter(profile => {
+        // For now, we'll assume all staff can work at any outlet
+        // In the future, we can add outlet-specific staff assignments
+        return profile.isActive;
+      });
+
+      console.log('👥 Total active staff profiles:', outletStaff.length);
+
+      // If no due date, return all outlet staff
+      if (!assignment.dueDate) {
+        console.log('📅 No due date, returning all active staff');
+        return outletStaff;
+      }
+
+      // Check schedule availability for the due date
+      const dueDate = new Date(assignment.dueDate);
+      const month = dueDate.getMonth() + 1;
+      const year = dueDate.getFullYear();
+
+      console.log('📅 Checking schedules for:', { dueDate: dueDate.toDateString(), month, year });
+
+      const availableStaff = [];
+
+      for (const staffProfile of outletStaff) {
+        try {
+          console.log(`👤 Checking availability for staff: ${staffProfile.user?.name} (${staffProfile.id})`);
+          
+          // Get monthly schedule for this staff member
+          const monthlySchedules = await monthlySchedulesAPI.getByStaff(staffProfile.id);
+          const monthlySchedule = monthlySchedules.find((ms: any) => ms.month === month && ms.year === year);
+          
+          if (monthlySchedule) {
+            console.log(`📅 Found monthly schedule for ${staffProfile.user?.name}`);
+            const dailySchedule = monthlySchedule.dailySchedules?.find((ds: any) => 
+              new Date(ds.scheduleDate).toDateString() === dueDate.toDateString()
+            );
+
+            if (dailySchedule) {
+              console.log(`📅 Found daily schedule for ${staffProfile.user?.name}:`, {
+                isDayOff: dailySchedule.isDayOff,
+                outletId: dailySchedule.outletId,
+                assignmentOutletId: assignment.outletId,
+                timeIn: dailySchedule.timeIn,
+                timeOut: dailySchedule.timeOut
+              });
+              
+              // Check if staff is working at the correct outlet on this date
+              if (!dailySchedule.isDayOff && 
+                  dailySchedule.outletId === assignment.outletId) {
+                
+                // Include anyone working that day at that outlet
+                console.log(`✅ Adding ${staffProfile.user?.name} to available staff`);
+                availableStaff.push(staffProfile);
+              } else {
+                console.log(`❌ ${staffProfile.user?.name} not available - day off or wrong outlet`);
+              }
+            } else {
+              console.log(`📅 No daily schedule for ${staffProfile.user?.name} on ${dueDate.toDateString()}`);
+              // No schedule for this date, assume available
+              console.log(`✅ Adding ${staffProfile.user?.name} to available staff (no schedule)`);
+              availableStaff.push(staffProfile);
+            }
+          } else {
+            console.log(`📅 No monthly schedule for ${staffProfile.user?.name} for ${month}/${year}`);
+            // No monthly schedule, assume available
+            console.log(`✅ Adding ${staffProfile.user?.name} to available staff (no monthly schedule)`);
+            availableStaff.push(staffProfile);
+          }
+        } catch (error) {
+          console.error('Error checking availability for staff:', staffProfile.id, error);
+          // If we can't check availability, include them anyway
+          console.log(`✅ Adding ${staffProfile.user?.name} to available staff (error fallback)`);
+          availableStaff.push(staffProfile);
+        }
+      }
+
+      console.log(`🎯 Final available staff count: ${availableStaff.length}`);
+      return availableStaff;
+    } catch (error) {
+      console.error('Error filtering available staff:', error);
+      // Fallback to all active staff
+      return allStaffProfiles.filter(profile => profile.isActive);
+    }
   };
 
   const handleViewAssignment = (assignment: TaskAssignment) => {
@@ -458,7 +595,7 @@ const StaffDashboard: React.FC = () => {
   // For outlet users, calculate metrics based on all outlet tasks (assigned + unassigned)
   // For staff users, use only their assigned tasks
   const allOutletTasks = isOutletUser && currentOutlet 
-    ? [...assignments, ...unassignedTasks] // All tasks for the outlet
+    ? assignments // All outlet assignments (already includes both assigned and unassigned)
     : assignments; // Only assigned tasks for staff
 
   // Calculate stats from ALL tasks (not filtered)
@@ -469,14 +606,20 @@ const StaffDashboard: React.FC = () => {
     a.completedAt && 
     new Date(a.completedAt).toDateString() === new Date().toDateString()
   );
-  const allUnassignedTasks = unassignedTasks;
-
 
   // Apply filters to the task lists for display
   // For the main display, only show pending and overdue tasks (not completed)
   const activeAssignments = allOutletTasks.filter(a => a.status === 'pending' || a.status === 'overdue');
   const filteredAssignments = getFilteredAssignments(activeAssignments);
-  const filteredUnassignedTasks = getFilteredAssignments(unassignedTasks);
+  
+  // For outlet users, filter unassigned tasks from allOutletTasks
+  // For staff users, use the separate unassignedTasks array
+  const unassignedTasksToShow = isOutletUser && currentOutlet 
+    ? allOutletTasks.filter(a => !a.staffId)
+    : unassignedTasks;
+  const filteredUnassignedTasks = getFilteredAssignments(unassignedTasksToShow);
+  const allUnassignedTasks = unassignedTasksToShow;
+  
   const pendingAssignments = filteredAssignments.filter(a => a.status === 'pending');
   const overdueAssignments = filteredAssignments.filter(a => a.status === 'overdue');
   
@@ -534,10 +677,22 @@ const StaffDashboard: React.FC = () => {
     );
   }
 
+
   const completionRate = activeTasksForToday > 0 ? (completedToday.length / activeTasksForToday) * 100 : 0;
 
   return (
     <Box sx={{ p: 3 }}>
+      {/* Success Message */}
+      {successMessage && (
+        <Alert 
+          severity="success" 
+          sx={{ mb: 3 }}
+          onClose={() => setSuccessMessage(null)}
+        >
+          {successMessage}
+        </Alert>
+      )}
+      
       {/* Header */}
       <Fade in timeout={600}>
         <Box sx={{ mb: 4 }}>
@@ -1024,25 +1179,49 @@ const StaffDashboard: React.FC = () => {
                                   <Schedule />
                                 </IconButton>
                               </Tooltip>
-                              <Button
-                                variant="contained"
-                                startIcon={<CameraAlt />}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  window.location.href = `/tasks/${assignment.id}/complete`;
-                                }}
-                                sx={{
-                                  borderRadius: 2,
-                                  px: 3,
-                                  py: 1,
-                                  background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
-                                  '&:hover': {
-                                    background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
-                                  },
-                                }}
-                              >
-                                Complete Now
-                              </Button>
+                              {assignment.staffId ? (
+                                <Button
+                                  variant="contained"
+                                  startIcon={<CameraAlt />}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    window.location.href = `/tasks/${assignment.id}/complete`;
+                                  }}
+                                  sx={{
+                                    borderRadius: 2,
+                                    px: 3,
+                                    py: 1,
+                                    background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                                    '&:hover': {
+                                      background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+                                    },
+                                  }}
+                                >
+                                  Complete Now
+                                </Button>
+                              ) : (
+                                <Button
+                                  variant="outlined"
+                                  startIcon={<Person />}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleTakeTask(assignment.id);
+                                  }}
+                                  sx={{
+                                    borderRadius: 2,
+                                    px: 3,
+                                    py: 1,
+                                    borderColor: '#ef4444',
+                                    color: '#ef4444',
+                                    '&:hover': {
+                                      borderColor: '#dc2626',
+                                      backgroundColor: 'rgba(239, 68, 68, 0.04)',
+                                    },
+                                  }}
+                                >
+                                  Assign to Team
+                                </Button>
+                              )}
                             </Box>
                           </Box>
                         </Paper>
@@ -1149,25 +1328,49 @@ const StaffDashboard: React.FC = () => {
                                   <Schedule />
                                 </IconButton>
                               </Tooltip>
-                            <Button
-                              variant="contained"
-                              startIcon={<CameraAlt />}
+                            {assignment.staffId ? (
+                              <Button
+                                variant="contained"
+                                startIcon={<CameraAlt />}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                window.location.href = `/tasks/${assignment.id}/complete`;
-                              }}
-                              sx={{
-                                borderRadius: 2,
-                                px: 3,
-                                py: 1,
-                                background: 'linear-gradient(135deg, #ec4899 0%, #be185d 100%)',
-                                '&:hover': {
-                                  background: 'linear-gradient(135deg, #db2777 0%, #9d174d 100%)',
-                                },
-                              }}
-                            >
-                              Complete
-                            </Button>
+                                  window.location.href = `/tasks/${assignment.id}/complete`;
+                                }}
+                                sx={{
+                                  borderRadius: 2,
+                                  px: 3,
+                                  py: 1,
+                                  background: 'linear-gradient(135deg, #ec4899 0%, #be185d 100%)',
+                                  '&:hover': {
+                                    background: 'linear-gradient(135deg, #db2777 0%, #9d174d 100%)',
+                                  },
+                                }}
+                              >
+                                Complete
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="outlined"
+                                startIcon={<Person />}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleTakeTask(assignment.id);
+                                }}
+                                sx={{
+                                  borderRadius: 2,
+                                  px: 3,
+                                  py: 1,
+                                  borderColor: '#ec4899',
+                                  color: '#ec4899',
+                                  '&:hover': {
+                                    borderColor: '#db2777',
+                                    backgroundColor: 'rgba(236, 72, 153, 0.04)',
+                                  },
+                                }}
+                              >
+                                Assign to Team
+                              </Button>
+                            )}
                             </Box>
                           </Box>
                         </Paper>
@@ -1427,48 +1630,52 @@ const StaffDashboard: React.FC = () => {
         </DialogTitle>
         <DialogContent>
           <Box sx={{ pt: 2 }}>
-            <Autocomplete
-              options={allStaffProfiles.filter(profile => {
-                console.log('🔍 Debug - checking profile:', profile.id, 'isActive:', profile.isActive, 'user:', profile.user);
-                if (!profile.isActive) return false;
-                // If outlet user, only show staff from the same outlet
-                // Note: We'll need to implement outlet assignment for staff later
-                // For now, show all active staff
-                return true;
-              })}
-              getOptionLabel={(option) => option.user?.name || 'Unknown Staff'}
-              value={allStaffProfiles.find(profile => profile.id === selectedStaffId) || null}
-              onChange={(_, newValue) => {
-                setSelectedStaffId(newValue?.id || '');
-              }}
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  label="Select Team Member"
-                  placeholder="Type to search team members..."
-                  helperText="Search by name, position, or employee ID"
-                />
-              )}
-              renderOption={(props, option) => (
-                <Box component="li" {...props}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Avatar sx={{ width: 32, height: 32 }}>
-                      {(option.user?.name || option.employeeId).charAt(0)}
-                    </Avatar>
-                    <Box>
-                      <Typography variant="subtitle2">
-                        {option.user?.name || 'Unknown Staff'}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {option.position?.name} • {option.employeeId}
-                      </Typography>
+            {loadingAvailableStaff ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <Box sx={{ textAlign: 'center' }}>
+                  <CircularProgress size={40} />
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                    Checking staff availability...
+                  </Typography>
+                </Box>
+              </Box>
+            ) : (
+              <Autocomplete
+                options={availableStaffForAssignment}
+                getOptionLabel={(option) => option.user?.name || 'Unknown Staff'}
+                value={availableStaffForAssignment.find(profile => profile.id === selectedStaffId) || null}
+                onChange={(_, newValue) => {
+                  setSelectedStaffId(newValue?.id || '');
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Select Team Member"
+                    placeholder="Type to search available team members..."
+                    helperText={`${availableStaffForAssignment.length} team members available for this task`}
+                  />
+                )}
+                renderOption={(props, option) => (
+                  <Box component="li" {...props}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                      <Avatar sx={{ width: 32, height: 32 }}>
+                        {(option.user?.name || option.employeeId).charAt(0)}
+                      </Avatar>
+                      <Box>
+                        <Typography variant="subtitle2">
+                          {option.user?.name || 'Unknown Staff'}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {option.position?.name} • {option.employeeId}
+                        </Typography>
+                      </Box>
                     </Box>
                   </Box>
-                </Box>
-              )}
-              isOptionEqualToValue={(option, value) => option.id === value?.id}
-              noOptionsText="No team members found"
-            />
+                )}
+                isOptionEqualToValue={(option, value) => option.id === value?.id}
+                noOptionsText="No available team members found for this task"
+              />
+            )}
           </Box>
         </DialogContent>
         <DialogActions>

@@ -591,6 +591,7 @@ export const assignmentsAPI = {
         assigned_date: assignmentData.assignedDate.toISOString(),
         due_date: assignmentData.dueDate.toISOString(),
         outlet_id: assignmentData.outletId || null,
+        organization_id: assignmentData.organizationId,
         status: assignmentData.status,
         completed_at: assignmentData.completedAt?.toISOString(),
         completion_proof: assignmentData.completionProof,
@@ -1742,10 +1743,55 @@ export const streakAPI = {
     }
 
     try {
-      // For now, return 0 to avoid the 365-day bug
-      // TODO: Implement proper streak calculation based on actual task completion history
-      console.log('🔍 Calculating streak for user:', userId, '- returning 0 for now');
-      return 0;
+      console.log('🔍 Calculating streak for user:', userId);
+      
+      // Get all completed tasks for this user, ordered by completion date
+      const { data: completedTasks, error } = await supabase
+        .from('task_assignments')
+        .select('completed_at')
+        .eq('staff_id', userId)
+        .eq('status', 'completed')
+        .not('completed_at', 'is', null)
+        .order('completed_at', { ascending: false });
+
+      if (error) throw error;
+
+      if (!completedTasks || completedTasks.length === 0) {
+        console.log('🔍 No completed tasks found, streak is 0');
+        return 0;
+      }
+
+      // Group completed tasks by date
+      const completedDates = new Set<string>();
+      completedTasks.forEach(task => {
+        if (task.completed_at) {
+          const completionDate = new Date(task.completed_at);
+          const dateString = completionDate.toISOString().split('T')[0]; // YYYY-MM-DD
+          completedDates.add(dateString);
+        }
+      });
+
+      // Calculate consecutive days from today backwards
+      const today = new Date();
+      let streak = 0;
+      let currentDate = new Date(today);
+
+      // Check each day going backwards (limit to 365 days to prevent infinite loops)
+      for (let i = 0; i < 365; i++) {
+        const dateString = currentDate.toISOString().split('T')[0];
+        
+        if (completedDates.has(dateString)) {
+          // User completed tasks on this date - streak continues
+          streak++;
+          currentDate.setDate(currentDate.getDate() - 1);
+        } else {
+          // No completed tasks on this day - streak ends
+          break;
+        }
+      }
+
+      console.log(`🔍 Calculated streak: ${streak} days`);
+      return streak;
     } catch (error: any) {
       console.error('Error calculating streak:', error);
       return 0;
@@ -1820,10 +1866,22 @@ export const streakAPI = {
     try {
       console.log('🔍 Getting streak data for user:', userId);
       
-      // For now, always return 0 to avoid the 365-day bug
-      // TODO: Implement proper streak data retrieval once database is properly set up
-      console.log('🔍 Returning 0 for both streaks to avoid 365-day bug');
-      return { currentStreak: 0, longestStreak: 0 };
+      // Get current streak data from database
+      const { data: userData, error } = await supabase
+        .from('users')
+        .select('current_streak, longest_streak, last_clear_board_date')
+        .eq('id', userId)
+        .single();
+
+      if (error) throw error;
+
+      const currentStreak = userData?.current_streak || 0;
+      const longestStreak = userData?.longest_streak || 0;
+      const lastClearBoardDate = userData?.last_clear_board_date ? new Date(userData.last_clear_board_date) : undefined;
+
+      console.log('🔍 Retrieved streak data:', { currentStreak, longestStreak, lastClearBoardDate });
+      
+      return { currentStreak, longestStreak, lastClearBoardDate };
     } catch (error: any) {
       console.error('Error getting streak data:', error);
       return { currentStreak: 0, longestStreak: 0 };

@@ -230,15 +230,95 @@ const AppRoutes: React.FC = () => {
       <Route path="/signup" element={<SignupForm />} />
       <Route path="/staff-signup" element={<StaffOutletAuth />} />
       <Route path="/restaurant-signup" element={<RestaurantSignup />} />
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route 
-        path="/*" 
+        path="/dashboard/*" 
         element={
           <ProtectedRoute>
             {user?.role === 'admin' ? <AdminRoutes /> : <StaffRoutes />}
           </ProtectedRoute>
         } 
       />
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <Route 
+        path="/tasks/*" 
+        element={
+          <ProtectedRoute>
+            {user?.role === 'admin' ? <AdminRoutes /> : <StaffRoutes />}
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/staff/*" 
+        element={
+          <ProtectedRoute>
+            {user?.role === 'admin' ? <AdminRoutes /> : <StaffRoutes />}
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/outlets/*" 
+        element={
+          <ProtectedRoute>
+            {user?.role === 'admin' ? <AdminRoutes /> : <StaffRoutes />}
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/scheduler/*" 
+        element={
+          <ProtectedRoute>
+            {user?.role === 'admin' ? <AdminRoutes /> : <StaffRoutes />}
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/assignments/*" 
+        element={
+          <ProtectedRoute>
+            {user?.role === 'admin' ? <AdminRoutes /> : <StaffRoutes />}
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/reports/*" 
+        element={
+          <ProtectedRoute>
+            {user?.role === 'admin' ? <AdminRoutes /> : <StaffRoutes />}
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/invitations/*" 
+        element={
+          <ProtectedRoute>
+            {user?.role === 'admin' ? <AdminRoutes /> : <StaffRoutes />}
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/tasks/:assignmentId/complete" 
+        element={
+          <ProtectedRoute>
+            <TaskCompletion />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/team-scheduler" 
+        element={
+          <ProtectedRoute>
+            <TeamScheduler />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/performance" 
+        element={
+          <ProtectedRoute>
+            <PerformanceTracker />
+          </ProtectedRoute>
+        } 
+      />
     </Routes>
   );
 };

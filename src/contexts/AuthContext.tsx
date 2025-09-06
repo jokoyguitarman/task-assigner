@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User, AuthContextType, Outlet, Organization } from '../types';
-import { authAPI, outletsAPI } from '../services/supabaseService';
+import { authAPI, outletsAPI, usersAPI } from '../services/supabaseService';
 import { supabase } from '../lib/supabase';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -31,12 +31,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         if (session?.user) {
           console.log('🔐 Session found, user:', session.user.id);
           console.log('🔐 User metadata:', session.user.user_metadata);
-          // Create user object directly from session to avoid database calls
+          
+          // Set loading to false immediately to prevent hanging
+          console.log('🔐 Setting loading to false immediately');
+          setIsLoading(false);
+          
+          // Create user object from session data first (non-blocking)
+          // Try to determine role from metadata if available
+          const roleFromMetadata = session.user.user_metadata?.role || 'admin';
           const sessionUser: User = {
             id: session.user.id,
             email: session.user.email || '',
             name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'User',
-            role: 'admin' as const,
+            role: (roleFromMetadata === 'staff' || roleFromMetadata === 'outlet') ? roleFromMetadata : 'admin',
             organizationId: session.user.user_metadata?.organization_id || '00000000-0000-0000-0000-000000000001',
             isPrimaryAdmin: session.user.user_metadata?.is_primary_admin || false,
             createdAt: new Date(),
@@ -44,18 +51,36 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             currentStreak: 0,
             longestStreak: 0
           };
-          console.log('🔐 Using session user data:', sessionUser);
+          
+          console.log('🔐 Using session user data initially:', sessionUser);
           setUser(sessionUser);
+          
+          // Try to load user data from database in background (non-blocking with timeout)
+          Promise.race([
+            usersAPI.getById(session.user.id),
+            new Promise<never>((_, reject) => 
+              setTimeout(() => reject(new Error('Database lookup timeout')), 3000)
+            )
+          ])
+            .then((userData: User) => {
+              console.log('🔐 Loaded user data from database:', userData);
+              setUser(userData);
+              
+              // Load outlet data if this is an outlet user
+              loadUserTypeData(userData).catch(error => {
+                console.error('🔐 Error loading outlet data:', error);
+              });
+            })
+            .catch(error => {
+              console.warn('🔐 Database lookup failed or timed out, using session data:', error);
+              // Keep using session data - no need to update user again
+            });
           
           // Load organization data (non-blocking)
           console.log('🔐 Loading organization data...');
           loadOrganizationData(sessionUser.organizationId).catch(error => {
             console.error('🔐 Error loading organization:', error);
           });
-          
-          // Set loading to false immediately - organization will load in background
-          console.log('🔐 Setting loading to false immediately');
-          setIsLoading(false);
         } else {
           console.log('🔐 No session found');
           // Fallback to localStorage for backward compatibility
@@ -104,12 +129,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       
       if (event === 'SIGNED_IN' && session?.user) {
         console.log('🔐 SIGNED_IN event, user:', session.user.id);
-        // Create user object directly from session
+        
+        // Create user object from session data first (non-blocking)
+        // Try to determine role from metadata if available
+        const roleFromMetadata = session.user.user_metadata?.role || 'admin';
         const sessionUser: User = {
           id: session.user.id,
           email: session.user.email || '',
           name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'User',
-          role: 'admin' as const,
+          role: (roleFromMetadata === 'staff' || roleFromMetadata === 'outlet') ? roleFromMetadata : 'admin',
           organizationId: session.user.user_metadata?.organization_id || '00000000-0000-0000-0000-000000000001',
           isPrimaryAdmin: session.user.user_metadata?.is_primary_admin || false,
           createdAt: new Date(),
@@ -117,9 +145,32 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           currentStreak: 0,
           longestStreak: 0
         };
+        
+        console.log('🔐 Using session user data on SIGNED_IN:', sessionUser);
         setUser(sessionUser);
         
-                          // Load organization data (non-blocking)
+        // Try to load user data from database in background (non-blocking with timeout)
+        Promise.race([
+          usersAPI.getById(session.user.id),
+          new Promise<never>((_, reject) => 
+            setTimeout(() => reject(new Error('Database lookup timeout')), 3000)
+          )
+        ])
+          .then((userData: User) => {
+            console.log('🔐 Loaded user data from database on SIGNED_IN:', userData);
+            setUser(userData);
+            
+            // Load outlet data if this is an outlet user
+            loadUserTypeData(userData).catch(error => {
+              console.error('🔐 Error loading outlet data on SIGNED_IN:', error);
+            });
+          })
+          .catch(error => {
+            console.warn('🔐 Database lookup failed or timed out on SIGNED_IN, using session data:', error);
+            // Keep using session data - no need to update user again
+          });
+        
+        // Load organization data (non-blocking)
         console.log('🔐 Loading organization data on SIGNED_IN...');
         loadOrganizationData(sessionUser.organizationId).catch(error => {
           console.error('🔐 Error loading organization on SIGNED_IN:', error);

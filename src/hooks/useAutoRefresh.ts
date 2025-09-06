@@ -1,5 +1,6 @@
 import { useEffect, useCallback } from 'react';
 import { realtimeService } from '../services/realtimeService';
+import { notificationService } from '../services/notificationService';
 
 interface UseAutoRefreshOptions {
   refreshFunction: () => void | Promise<void>;
@@ -10,6 +11,8 @@ export const useAutoRefresh = ({ refreshFunction, enabled = true }: UseAutoRefre
   const handleRefresh = useCallback(async () => {
     try {
       await refreshFunction();
+      // Check for notifications after data refresh
+      await notificationService.checkForChanges();
     } catch (error) {
       console.error('Auto-refresh failed:', error);
     }

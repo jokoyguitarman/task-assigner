@@ -210,15 +210,21 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
     console.log('🔄 AssignmentForm onSubmit called with data:', data);
     console.log('🔄 AssignmentId:', assignmentId);
     console.log('🔄 SelectedOutletId:', selectedOutletId);
+    console.log('🔄 Form errors:', errors);
+    console.log('🔄 User organizationId:', user?.organizationId);
     
     setLoading(true);
+    setError(null);
+    
     try {
       // Clean up empty strings to undefined for UUID fields
       const cleanedData = {
         ...data,
         staffId: data.staffId && data.staffId.trim() !== '' ? data.staffId : undefined,
-        outletId: selectedOutletId && selectedOutletId.trim() !== '' ? selectedOutletId : undefined,
+        outletId: data.outletId && data.outletId.trim() !== '' ? data.outletId : undefined,
       };
+      
+      console.log('🔄 Cleaned data:', cleanedData);
       
       if (assignmentId) {
         console.log('📝 Updating existing assignment...');
@@ -240,7 +246,7 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
       onSuccess();
     } catch (error) {
       console.error('❌ Error saving assignment:', error);
-      // TODO: Add error state to show user feedback
+      setError(error instanceof Error ? error.message : 'Failed to save assignment');
     } finally {
       setLoading(false);
     }
@@ -261,6 +267,11 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
           </Typography>
 
           <Box component="form" onSubmit={handleSubmit(onSubmit)}>
+            {error && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {error}
+              </Alert>
+            )}
             <Grid container spacing={2}>
               <Grid item xs={12}>
                 <Controller
@@ -471,6 +482,19 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
 
               <Grid item xs={12}>
                 <Box display="flex" gap={2} justifyContent="flex-end">
+                  <Button
+                    variant="outlined"
+                    onClick={() => {
+                      console.log('🔍 Form Debug Info:');
+                      console.log('Form values:', watch());
+                      console.log('Form errors:', errors);
+                      console.log('Selected outlet ID:', selectedOutletId);
+                      console.log('User org ID:', user?.organizationId);
+                    }}
+                    disabled={loading}
+                  >
+                    Debug
+                  </Button>
                   <Button
                     variant="outlined"
                     onClick={onCancel}

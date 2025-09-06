@@ -15,8 +15,6 @@ import {
   LinearProgress,
   Fade,
   Slide,
-  Paper,
-  Divider,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -39,7 +37,6 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { TaskAssignment, Task, User, StaffProfile, Outlet } from '../../types';
 import { assignmentsAPI, tasksAPI, usersAPI, staffProfilesAPI, outletsAPI } from '../../services/supabaseService';
-import { supabase } from '../../lib/supabase';
 import Leaderboard from './Leaderboard';
 import AssignmentForm from './AssignmentForm';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
@@ -349,6 +346,7 @@ const AdminDashboard: React.FC = () => {
           </Box>
         </Box>
       </Fade>
+
 
       <Grid container spacing={2}>
         {/* Stats Cards */}

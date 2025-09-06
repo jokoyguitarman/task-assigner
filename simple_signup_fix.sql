@@ -16,3 +16,4 @@ SELECT 'RLS should allow anonymous signup - checking...' as info;
 
 
 
+

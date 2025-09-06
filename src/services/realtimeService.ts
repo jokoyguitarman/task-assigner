@@ -141,13 +141,45 @@ class RealtimeService {
     this.refreshCallback = callback;
   }
 
+  public triggerNotification(notification: RealtimeNotification) {
+    this.handleNotification(notification);
+  }
+
   public async initialize() {
     console.log('🔔 Initializing real-time service...');
     await this.requestNotificationPermission();
-    this.subscribeToTaskAssignments();
-    this.subscribeToTasks();
-    this.subscribeToSchedules();
-    console.log('🔔 Real-time service initialized');
+    
+    try {
+      this.subscribeToTaskAssignments();
+      this.subscribeToTasks();
+      this.subscribeToSchedules();
+      console.log('🔔 Real-time service initialized');
+    } catch (error) {
+      console.warn('🔔 Realtime initialization failed, using polling fallback mode:', error);
+      // Start polling as fallback
+      this.startPollingFallback();
+    }
+  }
+
+  private startPollingFallback() {
+    console.log('🔄 Starting polling fallback for notifications...');
+    // Poll every 10 seconds to check for changes
+    setInterval(async () => {
+      await this.checkForChanges();
+    }, 10000);
+  }
+
+  private async checkForChanges() {
+    try {
+      // This will be called by the refresh callback when data changes
+      // We'll detect changes by comparing with previous state
+      if (this.refreshCallback) {
+        // Trigger a refresh which will also check for notifications
+        this.refreshCallback();
+      }
+    } catch (error) {
+      console.error('Error in polling fallback:', error);
+    }
   }
 
   private subscribeToTaskAssignments() {
@@ -223,7 +255,12 @@ class RealtimeService {
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('🔔 Task assignments subscription status:', status);
+        if (status === 'CHANNEL_ERROR') {
+          console.warn('🔔 Task assignments realtime subscription failed - realtime may not be enabled');
+        }
+      });
 
     this.subscriptions.set('task_assignments', subscription);
   }
@@ -331,30 +368,6 @@ class RealtimeService {
     this.subscriptions.clear();
   }
 
-  public async testNotification(type: 'task' | 'schedule' | 'assignment' = 'task') {
-    const testNotifications = {
-      task: this.createRealtimeNotification(
-        'task_completed',
-        'Test Task Notification',
-        'This is a test task notification',
-        { test: true }
-      ),
-      schedule: this.createRealtimeNotification(
-        'schedule_updated',
-        'Test Schedule Notification',
-        'This is a test schedule notification',
-        { test: true }
-      ),
-      assignment: this.createRealtimeNotification(
-        'assignment_created',
-        'Test Assignment Notification',
-        'This is a test assignment notification',
-        { test: true }
-      ),
-    };
-
-    this.handleNotification(testNotifications[type]);
-  }
 }
 
 export const realtimeService = new RealtimeService();

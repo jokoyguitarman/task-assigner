@@ -36,6 +36,7 @@ import UsageStats from './UsageStats';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { realtimeService } from '../../services/realtimeService';
+import { notificationService } from '../../services/notificationService';
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -50,11 +51,15 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const realtimeInitialized = useRef(false);
 
-  // Initialize real-time service
+  // Initialize real-time service and notification service
   useEffect(() => {
     if (user && !realtimeInitialized.current) {
       console.log('🔔 Initializing real-time service for user:', user.id);
       realtimeService.initialize();
+      
+      // Set current user context for notifications
+      notificationService.setCurrentUser(user.id, user.role);
+      
       realtimeInitialized.current = true;
     } else if (!user && realtimeInitialized.current) {
       console.log('🔔 Cleaning up real-time service (no user)');
