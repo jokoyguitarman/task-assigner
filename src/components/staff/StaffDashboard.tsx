@@ -77,15 +77,19 @@ const StaffDashboard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [toastNotification, setToastNotification] = useState<any>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     console.log('🚀 StaffDashboard useEffect triggered');
     console.log('🔍 Current state:', { 
       user: !!user, 
       userEmail: user?.email,
+      userId: user?.id,
+      userRole: user?.role,
       isOutletUser, 
       currentOutlet: currentOutlet?.id,
-      loading 
+      loading,
+      retryCount
     });
     
     const loadData = async () => {
@@ -93,6 +97,9 @@ const StaffDashboard: React.FC = () => {
         console.log('❌ No user found, skipping data load');
         return;
       }
+      
+      // Set loading to true at the start
+      setLoading(true);
       
       console.log('🔄 Starting data load for user:', user.id);
       console.log('🔍 User details:', { 
@@ -166,20 +173,22 @@ const StaffDashboard: React.FC = () => {
             setAllStaffProfiles([]);
           }
 
-          if (!currentStaffProfile) {
-            throw new Error('No staff profile found for this user. Please contact an administrator.');
+          if (currentStaffProfile) {
+            const assignmentsData = await assignmentsAPI.getByStaff(currentStaffProfile.id);
+            console.log('👤 Staff assignments found:', assignmentsData.length);
+            setAssignments(assignmentsData);
+            
+            // Filter unassigned tasks
+            const unassigned = allAssignments.filter(assignment =>
+              !assignment.staffId
+            );
+            console.log('👤 Unassigned tasks found:', unassigned.length);
+            setUnassignedTasks(unassigned);
+          } else {
+            console.log('👤 No staff profile found, setting empty assignments');
+            setAssignments([]);
+            setUnassignedTasks([]);
           }
-
-          const assignmentsData = await assignmentsAPI.getByStaff(currentStaffProfile.id);
-          console.log('👤 Staff assignments found:', assignmentsData.length);
-          setAssignments(assignmentsData);
-          
-          // Filter unassigned tasks
-          const unassigned = allAssignments.filter(assignment =>
-            !assignment.staffId
-          );
-          console.log('👤 Unassigned tasks found:', unassigned.length);
-        setUnassignedTasks(unassigned);
         }
         
         console.log('🎯 Streak data loaded:', streakData);
@@ -204,6 +213,7 @@ const StaffDashboard: React.FC = () => {
       } finally {
         console.log('🏁 Data loading complete, setting loading to false');
         setLoading(false);
+        setRetryCount(0); // Reset retry count on successful load
       }
     };
 
@@ -213,7 +223,7 @@ const StaffDashboard: React.FC = () => {
     } else {
       console.log('❌ No user, not calling loadData()');
     }
-  }, [user, currentOutlet, isOutletUser]);
+  }, [user]);
 
   // Memoized refresh function to prevent infinite loops
   const refreshData = useCallback(async () => {
@@ -680,6 +690,17 @@ const StaffDashboard: React.FC = () => {
     );
   }
 
+  const handleRetry = () => {
+    console.log('🔄 Retry button clicked');
+    setError(null);
+    setRetryCount(0);
+    setLoading(true);
+    // Trigger a re-render by updating a state
+    setTimeout(() => {
+      window.location.reload();
+    }, 100);
+  };
+
   if (error) {
     return (
       <Box sx={{ p: 3 }}>
@@ -688,7 +709,16 @@ const StaffDashboard: React.FC = () => {
         </Alert>
         <Button 
           variant="contained" 
-          onClick={() => window.location.reload()}
+          onClick={handleRetry}
+          sx={{
+            background: 'linear-gradient(45deg, #9c27b0 30%, #3f51b5 90%)',
+            color: 'white',
+            borderRadius: 2,
+            px: 3,
+            '&:hover': {
+              transform: 'scale(1.05)',
+            },
+          }}
         >
           Retry
         </Button>
