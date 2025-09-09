@@ -36,7 +36,6 @@ import UsageStats from './UsageStats';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { realtimeService } from '../../services/realtimeService';
-import { notificationService } from '../../services/notificationService';
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -55,10 +54,19 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   useEffect(() => {
     if (user && !realtimeInitialized.current) {
       console.log('🔔 Initializing real-time service for user:', user.id);
-      realtimeService.initialize();
       
-      // Set current user context for notifications
-      notificationService.setCurrentUser(user.id, user.role);
+      // Set current user context for realtime service
+      realtimeService.setCurrentUser(
+        user.id, 
+        user.role, 
+        user.organizationId, 
+        undefined // currentOutlet will be set separately if needed
+      );
+      
+      // Initialize realtime service
+      realtimeService.initialize().catch(error => {
+        console.warn('🔔 Realtime initialization failed, continuing without real-time features:', error);
+      });
       
       realtimeInitialized.current = true;
     } else if (!user && realtimeInitialized.current) {

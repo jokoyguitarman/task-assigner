@@ -1,5 +1,4 @@
 import { assignmentsAPI, tasksAPI } from './supabaseService';
-import { realtimeService } from './realtimeService';
 
 export interface NotificationData {
   id: string;
@@ -146,8 +145,7 @@ class NotificationService {
       sound: soundMap[notification.type] || 'task' // Map to correct sound type
     };
     
-    // Trigger audio and browser notifications
-    realtimeService.triggerNotification(realtimeNotification);
+    // Audio and browser notifications are now handled by realtimeService directly
     
     // Call notification callback
     if (this.notificationCallback) {

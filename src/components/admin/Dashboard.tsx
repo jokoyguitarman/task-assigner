@@ -40,6 +40,7 @@ import { assignmentsAPI, tasksAPI, usersAPI, staffProfilesAPI, outletsAPI } from
 import Leaderboard from './Leaderboard';
 import AssignmentForm from './AssignmentForm';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
+import { realtimeService } from '../../services/realtimeService';
 
 const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -62,14 +63,47 @@ const AdminDashboard: React.FC = () => {
     initializeDashboard();
   }, []);
 
-  // Periodic check for overdue assignments (every 5 minutes)
+  // Set up real-time dashboard metrics updates and notifications
   useEffect(() => {
-    const interval = setInterval(() => {
-      updateOverdueAssignments();
-    }, 5 * 60 * 1000); // 5 minutes
+    console.log('🔄 Admin Dashboard: Setting up real-time subscriptions...');
+    const unsubscribe = realtimeService.subscribeToDashboardMetrics();
+    
+    // Set up notification callback for admin
+    realtimeService.setNotificationCallback((notification: any) => {    
+      console.log('🔔 Admin received notification:', notification);
+    });
+    
+    // Set up refresh callback for dashboard updates
+    realtimeService.setRefreshCallback(() => {
+      console.log('🔄 Admin dashboard refresh callback triggered!');
+      console.log('🔄 Calling loadData...');
+      loadData();
+    });
+    
+    console.log('🔄 Admin Dashboard: Real-time subscriptions set up successfully');
+    
+    return () => {
+      console.log('🔄 Admin Dashboard: Cleaning up real-time subscriptions...');
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
+  }, []);
 
-    return () => clearInterval(interval);
-  }, []); // Remove assignments dependency to prevent infinite loop
+  // Test function for debugging
+  const testRealtime = () => {
+    console.log('🧪 Testing real-time connection...');
+    realtimeService.testRealtimeConnection();
+  };
+
+  // Periodic check for overdue assignments (every 5 minutes) - DISABLED: Using realtime instead
+  // useEffect(() => {
+  //   const interval = setInterval(() => {
+  //     updateOverdueAssignments();
+  //   }, 5 * 60 * 1000); // 5 minutes
+
+  //   return () => clearInterval(interval);
+  // }, []); // Remove assignments dependency to prevent infinite loop
 
   const updateOverdueAssignments = async () => {
     try {
@@ -342,6 +376,16 @@ const AdminDashboard: React.FC = () => {
               <Typography variant="body1" color="text.secondary">
                 Welcome back! Here's what's happening with your tasks today.
               </Typography>
+               
+              {/* Test Button */}
+              <Button 
+                variant="outlined" 
+                onClick={testRealtime}
+                size="small"
+                sx={{ mt: 2 }}
+              >
+                🧪 Test Real-time
+              </Button>
             </Box>
           </Box>
         </Box>

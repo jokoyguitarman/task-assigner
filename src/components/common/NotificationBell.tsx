@@ -24,7 +24,6 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { realtimeService, RealtimeNotification } from '../../services/realtimeService';
-import { notificationService, NotificationData } from '../../services/notificationService';
 
 interface Notification {
   id: string;
@@ -51,11 +50,8 @@ const NotificationBell: React.FC = () => {
     // Set up real-time notifications
     realtimeService.setNotificationCallback(handleRealtimeNotification);
     
-    // Set up notification service callback
-    notificationService.setNotificationCallback(handleNotificationServiceNotification);
-    
     return () => {
-      realtimeService.cleanup();
+      // Cleanup is handled by the realtime service itself
     };
   }, []);
 
@@ -79,25 +75,6 @@ const NotificationBell: React.FC = () => {
     });
   };
 
-  const handleNotificationServiceNotification = (notificationData: NotificationData) => {
-    console.log('🔔 NotificationBell received notification service notification:', notificationData);
-    const notification: Notification = {
-      id: notificationData.id,
-      type: notificationData.type,
-      title: notificationData.title,
-      message: notificationData.message,
-      timestamp: notificationData.timestamp,
-      read: false,
-      taskId: notificationData.data?.taskId,
-      assignmentId: notificationData.data?.assignmentId,
-    };
-    
-    setNotifications(prev => {
-      const updated = [notification, ...prev];
-      localStorage.setItem('notifications', JSON.stringify(updated));
-      return updated;
-    });
-  };
 
   const loadNotifications = async () => {
     try {

@@ -1864,8 +1864,6 @@ export const streakAPI = {
     }
 
     try {
-      console.log('🔍 Getting streak data for user:', userId);
-      
       // Get current streak data from database
       const { data: userData, error } = await supabase
         .from('users')
@@ -1878,8 +1876,6 @@ export const streakAPI = {
       const currentStreak = userData?.current_streak || 0;
       const longestStreak = userData?.longest_streak || 0;
       const lastClearBoardDate = userData?.last_clear_board_date ? new Date(userData.last_clear_board_date) : undefined;
-
-      console.log('🔍 Retrieved streak data:', { currentStreak, longestStreak, lastClearBoardDate });
       
       return { currentStreak, longestStreak, lastClearBoardDate };
     } catch (error: any) {

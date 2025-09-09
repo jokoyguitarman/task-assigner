@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Grid,
@@ -47,12 +47,12 @@ import { useAuth } from '../../contexts/AuthContext';
 import { TaskAssignment, Task, StaffProfile, User, Outlet } from '../../types';
 import { assignmentsAPI, tasksAPI, staffProfilesAPI, usersAPI, outletsAPI, streakAPI, monthlySchedulesAPI } from '../../services/supabaseService';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
+import { realtimeService } from '../../services/realtimeService';
+import ToastNotification from '../common/ToastNotification';
 import RescheduleRequestDialog from './RescheduleRequestDialog';
 
 const StaffDashboard: React.FC = () => {
-  console.log('🏗️ StaffDashboard component mounting/rendering');
   const { user, currentOutlet, isOutletUser } = useAuth();
-  console.log('🔐 Auth context values:', { user: !!user, currentOutlet: !!currentOutlet, isOutletUser });
   const [assignments, setAssignments] = useState<TaskAssignment[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [unassignedTasks, setUnassignedTasks] = useState<TaskAssignment[]>([]);
@@ -76,6 +76,7 @@ const StaffDashboard: React.FC = () => {
   const [assignmentToReschedule, setAssignmentToReschedule] = useState<TaskAssignment | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [toastNotification, setToastNotification] = useState<any>(null);
 
   useEffect(() => {
     console.log('🚀 StaffDashboard useEffect triggered');
@@ -213,60 +214,87 @@ const StaffDashboard: React.FC = () => {
       console.log('❌ No user, not calling loadData()');
     }
   }, [user, currentOutlet, isOutletUser]);
-  
-  console.log('🔄 StaffDashboard render - assignments:', assignments.length, 'unassigned:', unassignedTasks.length);
-  console.log('🔍 useEffect dependencies:', { user: !!user, currentOutlet: !!currentOutlet, isOutletUser });
 
-  // Auto-refresh when data changes
-  useAutoRefresh({ 
-    refreshFunction: async () => {
-      if (user) {
-        // Re-run the same data loading logic
-        const [tasksData, allAssignments, usersData, outletsData, streakData] = await Promise.all([
-          tasksAPI.getAll(),
-          assignmentsAPI.getAll(),
-          usersAPI.getAll(),
-          outletsAPI.getAll(),
-          streakAPI.getStreakData(user.id),
-        ]);
+  // Memoized refresh function to prevent infinite loops
+  const refreshData = useCallback(async () => {
+    if (user) {
+      // Re-run the same data loading logic
+      const [tasksData, allAssignments, usersData, outletsData, streakData] = await Promise.all([
+        tasksAPI.getAll(),
+        assignmentsAPI.getAll(),
+        usersAPI.getAll(),
+        outletsAPI.getAll(),
+        streakAPI.getStreakData(user.id),
+      ]);
+      
+      setTasks(tasksData);
+      setUsers(usersData);
+      setOutlets(outletsData);
+      setCurrentStreak(streakData.currentStreak);
+      setLongestStreak(streakData.longestStreak);
+      
+      if (isOutletUser && currentOutlet) {
+        // Show ALL assignments for this outlet (both assigned and unassigned)
+        const outletAssignments = allAssignments.filter(assignment => 
+          assignment.outletId === currentOutlet.id
+        );
+        setAssignments(outletAssignments);
+        const unassigned = outletAssignments.filter(assignment => !assignment.staffId);
+        setUnassignedTasks(unassigned);
+      } else {
+        let currentStaffProfile = null;
+        try {
+          const staffProfiles = await staffProfilesAPI.getAll();
+          currentStaffProfile = staffProfiles.find(sp => sp.userId === user.id);
+          setStaffProfile(currentStaffProfile || null);
+          setAllStaffProfiles(staffProfiles);
+        } catch (error) {
+          console.error('❌ Error loading staff profiles:', error);
+          setAllStaffProfiles([]);
+        }
         
-        setTasks(tasksData);
-        setUsers(usersData);
-        setOutlets(outletsData);
-        setCurrentStreak(streakData.currentStreak);
-        setLongestStreak(streakData.longestStreak);
-        
-        if (isOutletUser && currentOutlet) {
-          // Show ALL assignments for this outlet (both assigned and unassigned)
-          const outletAssignments = allAssignments.filter(assignment => 
-            assignment.outletId === currentOutlet.id
-          );
-          setAssignments(outletAssignments);
-          const unassigned = outletAssignments.filter(assignment => !assignment.staffId);
+        if (currentStaffProfile) {
+          const assignmentsData = await assignmentsAPI.getByStaff(currentStaffProfile.id);
+          setAssignments(assignmentsData);
+          const unassigned = allAssignments.filter(assignment => !assignment.staffId);
           setUnassignedTasks(unassigned);
-        } else {
-          let currentStaffProfile = null;
-          try {
-            const staffProfiles = await staffProfilesAPI.getAll();
-            console.log('🔍 Staff profiles loaded (outlet user):', staffProfiles);
-            console.log('🔍 Staff profiles count (outlet user):', staffProfiles.length);
-            currentStaffProfile = staffProfiles.find(sp => sp.userId === user.id);
-            setStaffProfile(currentStaffProfile || null);
-            setAllStaffProfiles(staffProfiles);
-          } catch (error) {
-            console.error('❌ Error loading staff profiles (outlet user):', error);
-            setAllStaffProfiles([]);
-          }
-          
-          if (currentStaffProfile) {
-            const assignmentsData = await assignmentsAPI.getByStaff(currentStaffProfile.id);
-            setAssignments(assignmentsData);
-            const unassigned = allAssignments.filter(assignment => !assignment.staffId);
-            setUnassignedTasks(unassigned);
-          }
         }
       }
     }
+  }, [user, isOutletUser, currentOutlet]);
+
+  // Set up real-time updates for staff dashboard
+  useEffect(() => {
+    if (user) {
+      console.log('🔔 Setting up real-time updates for staff dashboard');
+      
+      // Subscribe to dashboard metrics for real-time updates
+      const unsubscribe = realtimeService.subscribeToDashboardMetrics();
+      
+      // Set up notification callback for staff/outlet
+      realtimeService.setNotificationCallback((notification: any) => {
+        console.log('🔔 Staff received notification:', notification);
+        setToastNotification(notification);
+      });
+      
+      // Set up refresh callback for dashboard updates
+      realtimeService.setRefreshCallback(() => {
+        console.log('🔄 Staff dashboard refresh callback triggered!');
+        console.log('🔄 Calling refreshData...');
+        refreshData();
+      });
+      
+      return () => {
+        if (unsubscribe) {
+          unsubscribe();
+        }
+      };
+    }
+  }, [user, refreshData]);
+
+  // Auto-refresh when data changes
+  useAutoRefresh({ 
+    refreshFunction: refreshData
   });
 
   const handleTakeTask = async (assignmentId: string) => {
@@ -642,15 +670,6 @@ const StaffDashboard: React.FC = () => {
   // Today's work = pending/overdue tasks + tasks completed today
   const activeTasksForToday = pendingOverdueTasks.length + completedToday.length;
   
-  // Debug logging (can be removed later)
-  console.log('🔍 Progress Debug:', {
-    isOutletUser,
-    totalTasks: userAssignedTasks.length,
-    pendingOverdueTasks: pendingOverdueTasks.length,
-    completedToday: completedToday.length,
-    activeTasksForToday: activeTasksForToday,
-    allCompleted: userAssignedTasks.filter(a => a.status === 'completed').length
-  });
 
   if (loading) {
     return (
@@ -1064,9 +1083,9 @@ const StaffDashboard: React.FC = () => {
                         label={`${filteredUnassignedTasks.length} unassigned`} 
                         color="warning" 
                         variant="filled"
-                        sx={{ fontWeight: 500 }}
-                      />
-                    )}
+                      sx={{ fontWeight: 500 }}
+                    />
+                  )}
                   </Box>
                 </Box>
                 
@@ -1329,25 +1348,25 @@ const StaffDashboard: React.FC = () => {
                                 </IconButton>
                               </Tooltip>
                             {assignment.staffId ? (
-                              <Button
-                                variant="contained"
-                                startIcon={<CameraAlt />}
+                            <Button
+                              variant="contained"
+                              startIcon={<CameraAlt />}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  window.location.href = `/tasks/${assignment.id}/complete`;
-                                }}
-                                sx={{
-                                  borderRadius: 2,
-                                  px: 3,
-                                  py: 1,
-                                  background: 'linear-gradient(135deg, #ec4899 0%, #be185d 100%)',
-                                  '&:hover': {
-                                    background: 'linear-gradient(135deg, #db2777 0%, #9d174d 100%)',
-                                  },
-                                }}
-                              >
-                                Complete
-                              </Button>
+                                window.location.href = `/tasks/${assignment.id}/complete`;
+                              }}
+                              sx={{
+                                borderRadius: 2,
+                                px: 3,
+                                py: 1,
+                                background: 'linear-gradient(135deg, #ec4899 0%, #be185d 100%)',
+                                '&:hover': {
+                                  background: 'linear-gradient(135deg, #db2777 0%, #9d174d 100%)',
+                                },
+                              }}
+                            >
+                              Complete
+                            </Button>
                             ) : (
                               <Button
                                 variant="outlined"
@@ -1650,28 +1669,31 @@ const StaffDashboard: React.FC = () => {
                 renderInput={(params) => (
                   <TextField
                     {...params}
-                    label="Select Team Member"
+                label="Select Team Member"
                     placeholder="Type to search available team members..."
                     helperText={`${availableStaffForAssignment.length} team members available for this task`}
                   />
                 )}
-                renderOption={(props, option) => (
-                  <Box component="li" {...props}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                      <Avatar sx={{ width: 32, height: 32 }}>
-                        {(option.user?.name || option.employeeId).charAt(0)}
-                      </Avatar>
-                      <Box>
-                        <Typography variant="subtitle2">
-                          {option.user?.name || 'Unknown Staff'}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {option.position?.name} • {option.employeeId}
-                        </Typography>
+                renderOption={(props, option) => {
+                  const { key, ...otherProps } = props;
+                  return (
+                    <Box component="li" key={key} {...otherProps}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <Avatar sx={{ width: 32, height: 32 }}>
+                          {(option.user?.name || option.employeeId).charAt(0)}
+                        </Avatar>
+                        <Box>
+                          <Typography variant="subtitle2">
+                            {option.user?.name || 'Unknown Staff'}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {option.position?.name} • {option.employeeId}
+                          </Typography>
+                        </Box>
                       </Box>
                     </Box>
-                  </Box>
-                )}
+                  );
+                }}
                 isOptionEqualToValue={(option, value) => option.id === value?.id}
                 noOptionsText="No available team members found for this task"
               />
@@ -1912,6 +1934,12 @@ const StaffDashboard: React.FC = () => {
         onSuccess={handleRescheduleSuccess}
         taskTitle={assignmentToReschedule ? getTaskTitle(assignmentToReschedule.taskId) : undefined}
         outletName={assignmentToReschedule ? getOutletName(assignmentToReschedule) : undefined}
+      />
+
+      {/* Toast Notification */}
+      <ToastNotification 
+        notification={toastNotification}
+        onClose={() => setToastNotification(null)}
       />
     </Box>
   );

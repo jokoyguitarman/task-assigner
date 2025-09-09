@@ -15,27 +15,18 @@ import {
   Alert,
   FormControlLabel,
   Checkbox,
-  Divider,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemIcon,
-  Paper,
   Autocomplete,
 } from '@mui/material';
 import {
   CheckCircle as CheckCircleIcon,
   Cancel as CancelIcon,
   Warning as WarningIcon,
-  Schedule as ScheduleIcon,
-  LocationOn as LocationIcon,
-  Person as PersonIcon,
 } from '@mui/icons-material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { useForm, Controller } from 'react-hook-form';
-import { AssignmentFormData, Task, User, StaffProfile, Outlet, DailySchedule } from '../../types';
+import { AssignmentFormData, Task, StaffProfile, Outlet } from '../../types';
 import { 
   tasksAPI, 
   usersAPI, 
@@ -45,6 +36,7 @@ import {
   monthlySchedulesAPI 
 } from '../../services/supabaseService';
 import { useAuth } from '../../contexts/AuthContext';
+import { realtimeService } from '../../services/realtimeService';
 
 interface AssignmentFormProps {
   assignmentId?: string;
@@ -56,7 +48,6 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [staff, setStaff] = useState<User[]>([]);
   const [staffProfiles, setStaffProfiles] = useState<StaffProfile[]>([]);
   const [outlets, setOutlets] = useState<Outlet[]>([]);
   const [loadingData, setLoadingData] = useState(true);
@@ -92,20 +83,17 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
 
   const loadData = async () => {
     try {
-      const [tasksData, staffData, staffProfilesData, outletsData] = await Promise.all([
-        tasksAPI.getAll(),
-        usersAPI.getAll(),
-        staffProfilesAPI.getAll(),
-        outletsAPI.getAll(),
-      ]);
+        const [tasksData, staffProfilesData, outletsData] = await Promise.all([
+          tasksAPI.getAll(),
+          staffProfilesAPI.getAll(),
+          outletsAPI.getAll(),
+        ]);
       setTasks(tasksData);
-      setStaff(staffData);
       setStaffProfiles(staffProfilesData);
       setOutlets(outletsData);
       
       console.log('📊 Assignment Form Data Loaded:');
       console.log('Tasks:', tasksData.length, tasksData);
-      console.log('Staff:', staffData.length, staffData);
       console.log('Staff Profiles:', staffProfilesData.length, staffProfilesData);
       console.log('Outlets:', outletsData.length, outletsData);
     } catch (error) {
@@ -232,7 +220,7 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
         console.log('✅ Assignment updated successfully');
       } else {
         console.log('📝 Creating new assignment...');
-        await assignmentsAPI.create({
+        const newAssignment = await assignmentsAPI.create({
           taskId: cleanedData.taskId,
           staffId: cleanedData.staffId,
           assignedDate: new Date(),
@@ -242,6 +230,9 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
           status: 'pending',
         });
         console.log('✅ Assignment created successfully');
+        
+        // Realtime subscription will automatically handle notifications
+        // No need to manually trigger notifications here
       }
       onSuccess();
     } catch (error) {

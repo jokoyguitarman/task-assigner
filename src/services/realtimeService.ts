@@ -15,8 +15,11 @@ class RealtimeService {
   private subscriptions: Map<string, any> = new Map();
   private notificationCallback?: (notification: RealtimeNotification) => void;
   private refreshCallback?: () => void;
-
-  // Audio service is initialized automatically
+  private currentUserId?: string;
+  private currentUserRole?: string;
+  private currentOrganizationId?: string;
+  private currentOutletId?: string;
+  private sentNotifications: Set<string> = new Set();
 
   private async playNotificationSound(soundType: 'task' | 'schedule' | 'assignment') {
     try {
@@ -38,7 +41,6 @@ class RealtimeService {
 
   private async requestNotificationPermission(): Promise<boolean> {
     if (!('Notification' in window)) {
-      console.warn('This browser does not support notifications');
       return false;
     }
 
@@ -47,35 +49,11 @@ class RealtimeService {
     }
 
     if (Notification.permission === 'denied') {
-      console.warn('Notification permission denied');
       return false;
     }
 
     const permission = await Notification.requestPermission();
     return permission === 'granted';
-  }
-
-  private createBrowserNotification(notification: RealtimeNotification) {
-    if (Notification.permission === 'granted') {
-      const browserNotification = new Notification(notification.title, {
-        body: notification.message,
-        icon: '/favicon.ico',
-        badge: '/favicon.ico',
-        tag: notification.id,
-        requireInteraction: false,
-        silent: false,
-      });
-
-      browserNotification.onclick = () => {
-        window.focus();
-        browserNotification.close();
-      };
-
-      // Auto-close after 5 seconds
-      setTimeout(() => {
-        browserNotification.close();
-      }, 5000);
-    }
   }
 
   private createRealtimeNotification(
@@ -84,16 +62,6 @@ class RealtimeService {
     message: string,
     data?: any
   ): RealtimeNotification {
-    const soundMap: Record<RealtimeNotification['type'], 'task' | 'schedule' | 'assignment'> = {
-      'task_assigned': 'task',
-      'task_completed': 'task',
-      'task_overdue': 'task',
-      'reschedule_requested': 'task',
-      'schedule_updated': 'schedule',
-      'assignment_created': 'assignment',
-      'assignment_updated': 'assignment',
-    };
-
     return {
       id: `${type}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       type,
@@ -101,35 +69,47 @@ class RealtimeService {
       message,
       timestamp: new Date(),
       data,
-      sound: soundMap[type],
+      sound: type.includes('assignment') ? 'assignment' : type.includes('schedule') ? 'schedule' : 'task'
     };
   }
 
   private handleNotification(notification: RealtimeNotification) {
-    console.log('🔔 Handling notification:', notification);
+    // Deduplication check
+    const notificationKey = `${notification.type}_${notification.data?.id || 'unknown'}_${Math.floor(notification.timestamp.getTime() / 1000)}`;
     
+    if (this.sentNotifications.has(notificationKey)) {
+      return;
+    }
+
+    // Add to sent notifications and clean up old ones
+    this.sentNotifications.add(notificationKey);
+    if (this.sentNotifications.size > 100) {
+      const oldKeys = Array.from(this.sentNotifications).slice(0, 50);
+      oldKeys.forEach(key => this.sentNotifications.delete(key));
+    }
+
     // Play sound
     if (notification.sound) {
       this.playNotificationSound(notification.sound);
     }
 
-    // Create browser notification
-    this.createBrowserNotification(notification);
+    // Show browser notification
+    if (Notification.permission === 'granted') {
+      new Notification(notification.title, {
+        body: notification.message,
+        icon: '/favicon.ico',
+        tag: notification.id
+      });
+    }
 
     // Call notification callback
     if (this.notificationCallback) {
-      console.log('🔔 Calling notification callback');
       this.notificationCallback(notification);
-    } else {
-      console.warn('🔔 No notification callback set');
     }
 
-    // Trigger refresh
+    // Call refresh callback for dashboard updates
     if (this.refreshCallback) {
-      console.log('🔔 Triggering refresh callback');
       this.refreshCallback();
-    } else {
-      console.warn('🔔 No refresh callback set');
     }
   }
 
@@ -141,128 +121,110 @@ class RealtimeService {
     this.refreshCallback = callback;
   }
 
+  public setCurrentUser(userId: string, role: string, organizationId?: string, outletId?: string) {
+    console.log('🔔 Setting current user context:', { userId, role, organizationId, outletId });
+    this.currentUserId = userId;
+    this.currentUserRole = role;
+    this.currentOrganizationId = organizationId;
+    this.currentOutletId = outletId;
+    
+    // Clean up existing subscriptions and reinitialize
+    this.cleanup();
+    this.initialize();
+  }
+
   public triggerNotification(notification: RealtimeNotification) {
     this.handleNotification(notification);
   }
 
+  public testNotification() {
+    const testNotification = this.createRealtimeNotification(
+      'assignment_created',
+      'Test Notification',
+      'This is a test notification to verify the system is working',
+      { test: true }
+    );
+    this.handleNotification(testNotification);
+  }
+
   public async initialize() {
-    console.log('🔔 Initializing real-time service...');
     await this.requestNotificationPermission();
     
     try {
-      this.subscribeToTaskAssignments();
+      // Skip task assignments subscription - dashboard metrics already handles it
+      console.log('🔄 Skipping task assignments subscription (handled by dashboard metrics)');
+      
+      console.log('🔄 Setting up tasks subscription...');
       this.subscribeToTasks();
+      
+      console.log('🔄 Setting up schedules subscription...');
       this.subscribeToSchedules();
-      console.log('🔔 Real-time service initialized');
+      
+      console.log('✅ Realtime service initialized');
     } catch (error) {
-      console.warn('🔔 Realtime initialization failed, using polling fallback mode:', error);
-      // Start polling as fallback
-      this.startPollingFallback();
+      console.error('❌ Realtime initialization failed:', error);
+      throw error;
     }
   }
 
-  private startPollingFallback() {
-    console.log('🔄 Starting polling fallback for notifications...');
-    // Poll every 10 seconds to check for changes
-    setInterval(async () => {
-      await this.checkForChanges();
-    }, 10000);
+  public testRealtimeConnection() {
+    console.log('🧪 Testing real-time connection...');
+    console.log('🧪 Current user context:', {
+      userId: this.currentUserId,
+      role: this.currentUserRole,
+      organizationId: this.currentOrganizationId
+    });
+    console.log('🧪 Refresh callback set:', !!this.refreshCallback);
+    console.log('🧪 Subscriptions count:', this.subscriptions.size);
+    
+    // Test manual refresh
+    if (this.refreshCallback) {
+      console.log('🧪 Testing manual refresh...');
+      this.refreshCallback();
+    }
   }
 
-  private async checkForChanges() {
-    try {
-      // This will be called by the refresh callback when data changes
-      // We'll detect changes by comparing with previous state
-      if (this.refreshCallback) {
-        // Trigger a refresh which will also check for notifications
-        this.refreshCallback();
+
+  private shouldNotifyUser(newRecord: any, oldRecord: any, eventType: string): boolean {
+    if (!this.currentUserId || !this.currentUserRole) {
+      return false;
+    }
+
+    // For new assignments (INSERT)
+    if (eventType === 'INSERT') {
+      // Admin gets notified of all new assignments
+      if (this.currentUserRole === 'admin') {
+        return true;
       }
-    } catch (error) {
-      console.error('Error in polling fallback:', error);
+      // Assigned user gets notified
+      if (this.currentUserRole === 'staff' && (newRecord as any)?.staffId === this.currentUserId) {
+        return true;
+      }
+      if (this.currentUserRole === 'outlet' && (newRecord as any)?.outletId === this.currentOutletId) {
+        return true;
+      }
+      return false;
     }
-  }
 
-  private subscribeToTaskAssignments() {
-    console.log('🔔 Subscribing to task assignments changes...');
-    const subscription = supabase
-      .channel('task_assignments_changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'task_assignments',
-        },
-        (payload) => {
-          console.log('Task assignment change detected:', payload);
-          
-          const { eventType, new: newRecord, old: oldRecord } = payload;
-          
-          if (eventType === 'INSERT') {
-            const notification = this.createRealtimeNotification(
-              'assignment_created',
-              'New Task Assignment',
-              `A new task has been assigned${newRecord.staffId ? ' to a staff member' : ' to an outlet'}`,
-              newRecord
-            );
-            this.handleNotification(notification);
-          } else if (eventType === 'UPDATE') {
-            const statusChanged = oldRecord?.status !== newRecord?.status;
-            
-            if (statusChanged) {
-              let notificationType: RealtimeNotification['type'];
-              let title: string;
-              let message: string;
+    // For updates (UPDATE)
+    if (eventType === 'UPDATE') {
+      // Admin gets notified of all updates (completions, assignments, etc.)
+      if (this.currentUserRole === 'admin') {
+        return true;
+      }
+      
+      // Staff gets notified of their own task updates
+      if (this.currentUserRole === 'staff' && (newRecord as any)?.staffId === this.currentUserId) {
+        return true;
+      }
+      
+      // Outlet gets notified of their outlet's task updates
+      if (this.currentUserRole === 'outlet' && (newRecord as any)?.outletId === this.currentOutletId) {
+        return true;
+      }
+    }
 
-              switch (newRecord.status) {
-                case 'completed':
-                  notificationType = 'task_completed';
-                  title = 'Task Completed';
-                  message = 'A task has been marked as completed';
-                  break;
-                case 'overdue':
-                  notificationType = 'task_overdue';
-                  title = 'Task Overdue';
-                  message = 'A task has become overdue';
-                  break;
-                case 'reschedule_requested':
-                  notificationType = 'reschedule_requested';
-                  title = 'Reschedule Requested';
-                  message = 'A staff member has requested to reschedule a task';
-                  break;
-                default:
-                  notificationType = 'assignment_updated';
-                  title = 'Assignment Updated';
-                  message = 'A task assignment has been updated';
-              }
-
-              const notification = this.createRealtimeNotification(
-                notificationType,
-                title,
-                message,
-                newRecord
-              );
-              this.handleNotification(notification);
-            } else {
-              const notification = this.createRealtimeNotification(
-                'assignment_updated',
-                'Assignment Updated',
-                'A task assignment has been updated',
-                newRecord
-              );
-              this.handleNotification(notification);
-            }
-          }
-        }
-      )
-      .subscribe((status) => {
-        console.log('🔔 Task assignments subscription status:', status);
-        if (status === 'CHANNEL_ERROR') {
-          console.warn('🔔 Task assignments realtime subscription failed - realtime may not be enabled');
-        }
-      });
-
-    this.subscriptions.set('task_assignments', subscription);
+    return false;
   }
 
   private subscribeToTasks() {
@@ -276,24 +238,20 @@ class RealtimeService {
           table: 'tasks',
         },
         (payload) => {
-          console.log('Task change detected:', payload);
-          
-          const { eventType, new: newRecord } = payload;
-          
-          if (eventType === 'INSERT') {
-            const notification = this.createRealtimeNotification(
-              'task_assigned',
-              'New Task Created',
-              `A new task "${newRecord.title}" has been created`,
-              newRecord
-            );
-            this.handleNotification(notification);
-          } else if (eventType === 'UPDATE') {
+          console.log('🔔 Task change detected:', {
+            eventType: payload.eventType,
+            taskTitle: (payload.new as any)?.title,
+            currentUser: this.currentUserId,
+            currentRole: this.currentUserRole
+          });
+          // Only notify admin about task changes
+          if (this.currentUserRole === 'admin') {
+            const taskTitle = (payload.new as any)?.title || 'Unknown';
             const notification = this.createRealtimeNotification(
               'task_assigned',
               'Task Updated',
-              `Task "${newRecord.title}" has been updated`,
-              newRecord
+              `Task "${taskTitle}" has been updated`,
+              payload.new
             );
             this.handleNotification(notification);
           }
@@ -312,53 +270,102 @@ class RealtimeService {
         {
           event: '*',
           schema: 'public',
-          table: 'monthly_schedules',
+          table: 'schedules',
         },
         (payload) => {
-          console.log('Schedule change detected:', payload);
-          
-          const { new: newRecord } = payload;
-          
           const notification = this.createRealtimeNotification(
             'schedule_updated',
             'Schedule Updated',
-            'Staff schedules have been updated',
-            newRecord
+            'Your schedule has been updated',
+            payload.new
           );
           this.handleNotification(notification);
         }
       )
       .subscribe();
 
-    this.subscriptions.set('monthly_schedules', subscription);
+    this.subscriptions.set('schedules', subscription);
+  }
 
-    // Also subscribe to daily schedules
-    const dailySubscription = supabase
-      .channel('daily_schedules_changes')
+  public subscribeToDashboardMetrics() {
+    console.log('🔄 Setting up dashboard metrics subscription for user:', {
+      userId: this.currentUserId,
+      role: this.currentUserRole,
+      organizationId: this.currentOrganizationId
+    });
+    
+    const subscription = supabase
+      .channel('dashboard_metrics')
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
-          table: 'daily_schedules',
+          table: 'task_assignments',
         },
         (payload) => {
-          console.log('Daily schedule change detected:', payload);
-          
-          const { new: newRecord } = payload;
-          
-          const notification = this.createRealtimeNotification(
-            'schedule_updated',
-            'Daily Schedule Updated',
-            'Daily staff schedules have been updated',
-            newRecord
-          );
-          this.handleNotification(notification);
+          console.log('🔔 Dashboard metrics - assignment change detected:', {
+            eventType: payload.eventType,
+            status: (payload.new as any)?.status,
+            staffId: (payload.new as any)?.staffId,
+            outletId: (payload.new as any)?.outletId,
+            currentUser: this.currentUserId,
+            currentRole: this.currentUserRole
+          });
+          console.log('🔔 Full payload:', payload);
+          if (this.refreshCallback) {
+            console.log('🔔 Triggering dashboard refresh for assignment change');
+            this.refreshCallback();
+          } else {
+            console.warn('🔔 No refresh callback set');
+          }
         }
       )
-      .subscribe();
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tasks',
+        },
+        (payload) => {
+          if (this.refreshCallback) {
+            this.refreshCallback();
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('🔔 Dashboard metrics subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Dashboard metrics subscription active');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.warn('❌ Dashboard metrics subscription failed');
+        }
+      });
 
-    this.subscriptions.set('daily_schedules', dailySubscription);
+    // Add a test listener to see if we can receive any events
+    const testSubscription = supabase
+      .channel('test_connection')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'task_assignments',
+        },
+        (payload) => {
+          console.log('🧪 TEST: Task assignments change detected:', payload.eventType);
+        }
+      )
+      .subscribe((status) => {
+        console.log('🧪 TEST: Real-time test subscription status:', status);
+      });
+
+    this.subscriptions.set('dashboard_metrics', subscription);
+    return () => {
+      console.log('🔄 Cleaning up dashboard metrics subscription');
+      this.subscriptions.delete('dashboard_metrics');
+    };
   }
 
   public cleanup() {
@@ -367,7 +374,6 @@ class RealtimeService {
     });
     this.subscriptions.clear();
   }
-
 }
 
 export const realtimeService = new RealtimeService();
