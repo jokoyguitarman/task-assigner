@@ -9,7 +9,7 @@ WITH checks AS (
 -- Model
 -- --------------------------------------------------------------------------
 
-SELECT 1 AS ord, 'only admin and outlet principals exist' AS check,
+SELECT 1 AS ord, 'only admin and outlet principals exist' AS check_name,
        CASE WHEN NOT EXISTS (SELECT 1 FROM public.users WHERE role NOT IN ('admin','outlet'))
             THEN 'PASS' ELSE 'FAIL' END AS result,
        (SELECT string_agg(DISTINCT role, ', ') FROM public.users) AS detail
@@ -229,7 +229,7 @@ UNION ALL SELECT 40, 'proof files cannot be altered or deleted by a client',
             THEN 'PASS' ELSE 'FAIL' END, NULL
 
 )
-SELECT check, result, detail FROM checks ORDER BY ord;
+SELECT check_name, result, detail FROM checks ORDER BY ord;
 
 -- --------------------------------------------------------------------------
 -- The one thing SQL cannot verify

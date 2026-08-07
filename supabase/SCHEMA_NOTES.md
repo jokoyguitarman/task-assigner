@@ -482,9 +482,77 @@ removes the need for the auth admin API for this case.
 
 | File | Purpose | Status |
 | --- | --- | --- |
-| `0002_hotfix_privilege_escalation.sql` | Column-restricted user updates, invitation reads behind RPCs, `handle_new_user` without the email-substring admin rule | Written; optional if `0003` is applied straight away |
-| `0003_rebuild.sql` | The whole rewrite, in one transaction | Written |
+| `0002_hotfix_privilege_escalation.sql` | Column-restricted user updates, invitation reads behind RPCs, `handle_new_user` without the email-substring admin rule | Never applied; superseded |
+| `0003_rebuild.sql` | The whole rewrite, in one transaction | **Applied 2026-08-07** |
+| `0004_tighten_function_grants.sql` | Closes the grants `0003` believed it had closed | **Applied 2026-08-07** |
 
-`0002` exists because it can ship in minutes and needs no client work beyond the
-`invitationsAPI` change already in the tree. If `0003` is going in immediately,
-skip it — `0003` stands alone and supersedes it.
+`0002` was written because it could ship in minutes. `0003` went in first, so it
+was skipped.
+
+## What applying it actually changed
+
+Preflight was re-measured against live data immediately before the run and every
+blocking condition was zero, so nothing was forced.
+
+| | Before | After |
+| --- | --- | --- |
+| `users` rows | 13 | 3 |
+| Roles present | admin, staff, outlet | admin, outlet |
+| `staff_profiles` | 10, name reached through `users` | 8, own `name`, all with a branch |
+| `monthly_schedules` | 57 | 16 |
+| `daily_schedules` | 174 | 109 |
+| Policies on `public` | 35 | 27 |
+| Naive `timestamp` columns | 17 | 0 |
+
+The daily schedule count fell further than the 24 surplus rows measured
+beforehand. That is the two-stage dedup working as intended rather than data
+loss: children were first repointed onto the one surviving monthly schedule per
+staff member and month, which made rows that had been under different duplicate
+parents collide on the same day, and the same-day collapse then removed them.
+Every distinct staff-and-date pair survives, because two rows sharing one are by
+definition duplicates. Where a duplicate group disagreed about the shift, the
+most recently created row won.
+
+`verify_rebuild.sql` returned 28 of 30 PASS on the first run. Both failures were
+real, and `0004` fixes them.
+
+### Revoking from `PUBLIC` does not restrict `anon`
+
+Every `REVOKE ALL ON FUNCTION ... FROM PUBLIC` in `0003` was ineffective. The
+intent was to stop anonymous callers reaching the tier-limit functions, which are
+`SECURITY DEFINER` and take an organization id as an argument. After the rebuild
+they were still callable with nothing but the publishable key.
+
+Supabase configures default privileges on schema `public` so that a function
+created there is granted `EXECUTE` to `anon`, `authenticated` and `service_role`
+*explicitly*. Revoking from `PUBLIC` removes only the implicit grant. Worse, the
+two revokes are order-dependent: while a function's ACL is null it grants
+`EXECUTE` to `PUBLIC` implicitly, and `anon` reaches it that way, so revoking
+from `anon` alone does nothing either. Both are needed, `PUBLIC` first.
+
+`custom_access_token_hook` escaped only because its revoke happened to name
+`anon` directly.
+
+The general rule for this schema: `authenticated` must keep `EXECUTE` on
+everything, because policy expressions call `app_org_id()` and a policy is
+evaluated as the querying role. `anon` should hold exactly the three pre-auth
+invitation lookups and nothing else. `0004` also sets default privileges so the
+next function added does not quietly become public again, and scopes the two
+tier-limit functions to the caller's own organization so that even a signed-in
+branch cannot read another tenant's headcount by passing its uuid.
+
+### One auth-sync trigger survived
+
+`handle_user_update`, on `on_auth_user_updated` on `auth.users`, was the last of
+the machinery `0003` dismantled. It did not pin `search_path`, and it copied the
+name out of auth metadata on every update of the auth row, so renaming a
+principal in the app would silently revert. Dropped in `0004`.
+
+### Remaining advisor warnings, all expected
+
+The security advisor reports no errors. What is left is every table being visible
+in the GraphQL schema to `authenticated` (that is the design; RLS scopes the
+rows), the `SECURITY DEFINER` RPCs being callable by the roles they are meant for,
+leaked-password protection being off, and Postgres having patches available. The
+last two are dashboard settings. The `anon` exposure findings that motivated the
+rebuild are gone.

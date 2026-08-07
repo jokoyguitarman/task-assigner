@@ -1300,11 +1300,9 @@ COMMIT;
 --
 -- * Register the access token hook. Dashboard > Authentication > Hooks. Until
 --   then every policy denies, because no token carries claims.
--- * Give the two outlets without logins an auth account. That needs the auth
---   admin API from an Edge Function.
+-- * Give the two outlets without logins an auth account. Invite them and let
+--   them sign up; redeem_outlet_invitation finishes the job.
 -- * Enable leaked-password protection, or upgrade Postgres off the version with
 --   outstanding security patches. Both are dashboard settings.
--- * Touch the React app. It still writes to tables directly and still contains
---   the "default to admin" fallback in authAPI.login, which must be removed.
 --
 -- Run supabase/verify_rebuild.sql afterwards to confirm the result.
