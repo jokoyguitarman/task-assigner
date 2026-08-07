@@ -148,10 +148,25 @@ const StaffEnrollment: React.FC = () => {
       // Generate employee ID if not provided
       const employeeId = formData.employeeId || `EMP${String(staffProfiles.length + 1).padStart(3, '0')}`;
 
+      // "Other" is a sentinel from the dropdown, not an id. The typed name used to
+      // be validated and then thrown away, and the sentinel went on to a uuid
+      // column, so choosing it could only ever fail. Create the position first and
+      // use what comes back.
+      let positionId = formData.positionId;
+      if (showCustomPosition) {
+        const created = await staffPositionsAPI.create({
+          name: formData.customPositionName!.trim(),
+          description: formData.customPositionDescription?.trim() || undefined,
+          isCustom: true,
+          createdBy: user!.id,
+        });
+        positionId = created.id;
+      }
+
       if (editingStaff) {
         await staffProfilesAPI.update(editingStaff.id, {
           name: formData.name.trim(),
-          positionId: formData.positionId,
+          positionId,
           employeeId,
           hireDate: formData.hireDate,
           outletId: formData.outletId || undefined,
@@ -162,7 +177,7 @@ const StaffEnrollment: React.FC = () => {
         // work from the branch's shared phone, so there is nothing to sign in to.
         await staffProfilesAPI.create({
           name: formData.name.trim(),
-          positionId: formData.positionId,
+          positionId,
           employeeId,
           hireDate: formData.hireDate,
           outletId: formData.outletId || undefined,

@@ -45,7 +45,7 @@ const transformTask = (row: any): Task => ({
   estimatedMinutes: row.estimated_minutes,
   isRecurring: row.is_recurring || false,
   recurringPattern: row.recurring_pattern,
-  scheduledDate: row.scheduled_date ? new Date(row.scheduled_date) : undefined,
+  scheduledDate: row.scheduled_date ? parseDateOnly(row.scheduled_date) : undefined,
   isHighPriority: row.is_high_priority || false,
   organizationId: row.organization_id,
   createdBy: row.created_by,
@@ -57,8 +57,8 @@ const transformTaskAssignment = (row: any): TaskAssignment => ({
   id: row.id,
   taskId: row.task_id,
   staffId: row.staff_id || undefined,
-  assignedDate: new Date(row.assigned_date),
-  dueDate: new Date(row.due_date),
+  assignedDate: parseDateOnly(row.assigned_date),
+  dueDate: parseDateOnly(row.due_date),
   dueTime: row.due_time || undefined,
   outletId: row.outlet_id || undefined,
   organizationId: row.organization_id,
@@ -468,7 +468,7 @@ export const tasksAPI = {
         estimated_minutes: taskData.estimatedMinutes,
         is_recurring: taskData.isRecurring,
         recurring_pattern: taskData.recurringPattern,
-        scheduled_date: taskData.scheduledDate,
+        scheduled_date: taskData.scheduledDate ? toDateOnly(taskData.scheduledDate) : null,
         is_high_priority: taskData.isHighPriority,
         created_by: taskData.createdBy,
         organization_id: taskData.organizationId || (await requireOrganizationId()),
@@ -495,7 +495,9 @@ export const tasksAPI = {
     if (taskData.estimatedMinutes !== undefined) updateData.estimated_minutes = taskData.estimatedMinutes;
     if (taskData.isRecurring !== undefined) updateData.is_recurring = taskData.isRecurring;
     if (taskData.recurringPattern !== undefined) updateData.recurring_pattern = taskData.recurringPattern;
-    if (taskData.scheduledDate !== undefined) updateData.scheduled_date = taskData.scheduledDate;
+    if (taskData.scheduledDate !== undefined) {
+      updateData.scheduled_date = taskData.scheduledDate ? toDateOnly(taskData.scheduledDate) : null;
+    }
     if (taskData.isHighPriority !== undefined) updateData.is_high_priority = taskData.isHighPriority;
     if (taskData.createdBy !== undefined) updateData.created_by = taskData.createdBy;
 
@@ -608,8 +610,12 @@ export const assignmentsAPI = {
       .insert({
         task_id: assignmentData.taskId,
         staff_id: assignmentData.staffId || null,
-        assigned_date: assignmentData.assignedDate.toISOString(),
-        due_date: assignmentData.dueDate.toISOString(),
+        // These are DATE columns holding a business day, not an instant. Sending
+        // an ISO instant stores the UTC calendar day, which is yesterday for any
+        // Date whose local clock reads before 08:00 in Asia/Manila — i.e. exactly
+        // the closing shift this app exists to keep honest.
+        assigned_date: toDateOnly(assignmentData.assignedDate),
+        due_date: toDateOnly(assignmentData.dueDate),
         // Persisted so a task can be late the same evening rather than only
         // once the calendar rolls over. The form has always collected it.
         due_time: assignmentData.dueTime || null,
@@ -640,8 +646,8 @@ export const assignmentsAPI = {
 
     if (assignmentData.taskId) updateData.task_id = assignmentData.taskId;
     if (assignmentData.staffId !== undefined) updateData.staff_id = assignmentData.staffId || null;
-    if (assignmentData.assignedDate) updateData.assigned_date = assignmentData.assignedDate.toISOString();
-    if (assignmentData.dueDate) updateData.due_date = assignmentData.dueDate.toISOString();
+    if (assignmentData.assignedDate) updateData.assigned_date = toDateOnly(assignmentData.assignedDate);
+    if (assignmentData.dueDate) updateData.due_date = toDateOnly(assignmentData.dueDate);
     if (assignmentData.dueTime !== undefined) updateData.due_time = assignmentData.dueTime || null;
     if (assignmentData.outletId !== undefined) updateData.outlet_id = assignmentData.outletId || null;
     if (assignmentData.status) updateData.status = assignmentData.status;
