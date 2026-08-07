@@ -10,18 +10,11 @@ import {
   Alert,
   CircularProgress,
   Container,
-  Paper,
   Fade,
   Slide,
   Avatar,
-  Divider,
-  Chip,
 } from '@mui/material';
-import {
-  Login as LoginIcon,
-  AdminPanelSettings as AdminIcon,
-  Person as PersonIcon,
-} from '@mui/icons-material';
+import { Login as LoginIcon } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 
 const LoginForm: React.FC = () => {
@@ -216,120 +209,24 @@ const LoginForm: React.FC = () => {
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                       Don't have an account yet?
                     </Typography>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                      <Button
-                        variant="contained"
-                        onClick={() => navigate('/restaurant-signup')}
-                        sx={{
-                          textTransform: 'none',
-                          borderRadius: 2,
-                          px: 3,
-                          py: 1,
-                          mb: 1,
-                        }}
-                      >
-                        Start Your Restaurant
-                      </Button>
-                      <Button
-                        variant="outlined"
-                        onClick={() => navigate('/restaurant-signup')}
-                        sx={{
-                          textTransform: 'none',
-                          borderRadius: 2,
-                          px: 3,
-                          py: 1,
-                        }}
-                      >
-                        Create Admin Account
-                      </Button>
-                    </Box>
-                  </Box>
-
-                  <Divider sx={{ my: 3 }}>
-                    <Typography variant="body2" color="text.secondary" fontWeight={500}>
-                      Demo Accounts
-                    </Typography>
-                  </Divider>
-
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <Paper
-                      elevation={0}
+                    <Button
+                      variant="contained"
+                      onClick={() => navigate('/restaurant-signup')}
                       sx={{
-                        p: 2,
+                        textTransform: 'none',
                         borderRadius: 2,
-                        border: '1px solid #e2e8f0',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s ease',
-                        '&:hover': {
-                          borderColor: '#6366f1',
-                          transform: 'translateY(-1px)',
-                        },
-                      }}
-                      onClick={() => {
-                        setEmail('admin@taskassigner.com');
-                        setPassword('admin123');
+                        px: 3,
+                        py: 1,
                       }}
                     >
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Avatar sx={{ bgcolor: '#6366f1', width: 40, height: 40 }}>
-                          <AdminIcon />
-                        </Avatar>
-                        <Box sx={{ flex: 1 }}>
-                          <Typography variant="subtitle1" fontWeight={600}>
-                            Admin Account
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            admin@taskassigner.com
-                          </Typography>
-                        </Box>
-                        <Chip 
-                          label="Click to fill" 
-                          size="small" 
-                          color="primary" 
-                          variant="outlined"
-                        />
-                      </Box>
-                    </Paper>
-
-                    <Paper
-                      elevation={0}
-                      sx={{
-                        p: 2,
-                        borderRadius: 2,
-                        border: '1px solid #e2e8f0',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s ease',
-                        '&:hover': {
-                          borderColor: '#ec4899',
-                          transform: 'translateY(-1px)',
-                        },
-                      }}
-                      onClick={() => {
-                        setEmail('staff1@taskassigner.com');
-                        setPassword('staff123');
-                      }}
-                    >
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Avatar sx={{ bgcolor: '#ec4899', width: 40, height: 40 }}>
-                          <PersonIcon />
-                        </Avatar>
-                        <Box sx={{ flex: 1 }}>
-                          <Typography variant="subtitle1" fontWeight={600}>
-                            Staff Account
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            staff1@taskassigner.com
-                          </Typography>
-                        </Box>
-                        <Chip 
-                          label="Click to fill" 
-                          size="small" 
-                          color="secondary" 
-                          variant="outlined"
-                        />
-                      </Box>
-                    </Paper>
+                      Start Your Restaurant
+                    </Button>
                   </Box>
+
+                  <Typography variant="body2" color="text.secondary" textAlign="center">
+                    Staff do not sign in. Enrol them under a branch, then assign work to them
+                    from the branch's device.
+                  </Typography>
                 </CardContent>
               </Card>
             </Slide>
