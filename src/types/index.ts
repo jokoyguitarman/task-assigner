@@ -59,6 +59,10 @@ export interface TaskAssignment {
   // from the roster. That is a different fact from who it was assigned to.
   completedByStaffId?: string;
   minutesDeducted?: number;
+  // Write-only. Send it with a change of staffId; the database moves it into the
+  // reassignment history and clears it, so it always reads back empty. A branch
+  // must supply one to take work off someone who already owns it.
+  reassignmentReason?: string;
   // Reschedule request fields
   rescheduleRequestedAt?: Date;
   rescheduleReason?: string;
@@ -72,6 +76,21 @@ export interface TaskAssignment {
   task?: Task;
   staff?: StaffProfile;
   outlet?: Outlet;
+}
+
+// Every change of ownership on an assignment, written by the database rather than
+// the client so it cannot be edited or removed afterwards. The reason is required
+// when a branch takes work off someone, and optional when the owner reassigns.
+export interface Reassignment {
+  id: string;
+  assignmentId: string;
+  fromStaffId?: string;
+  toStaffId?: string;
+  reason?: string;
+  reassignedBy?: string;
+  reassignedAt: Date;
+  fromStaff?: StaffProfile;
+  toStaff?: StaffProfile;
 }
 
 export interface AuthContextType {

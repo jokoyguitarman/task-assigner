@@ -39,6 +39,7 @@ import { TaskAssignment, Task, StaffProfile, Outlet } from '../../types';
 import { effectiveStatus, statusColor, statusLabel } from '../../lib/assignmentStatus';
 import { assignmentsAPI, tasksAPI, staffProfilesAPI, outletsAPI } from '../../services/supabaseService';
 import AssignmentForm from './AssignmentForm';
+import CompletionEvidence from '../common/CompletionEvidence';
 
 const AssignmentList: React.FC = () => {
   const [assignments, setAssignments] = useState<TaskAssignment[]>([]);
@@ -800,16 +801,10 @@ const AssignmentList: React.FC = () => {
               </Box>
 
 
-              {assignmentToView.completionProof && assignmentToView.completionProof.trim() !== '' && (
-                <Box mb={2}>
-                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                    Completion Proof
-                  </Typography>
-                  <Typography variant="body1">
-                    {assignmentToView.completionProof}
-                  </Typography>
-                </Box>
-              )}
+              <CompletionEvidence
+                assignmentId={assignmentToView.id}
+                completionNotes={assignmentToView.completionNotes}
+              />
 
               {assignmentToView.status === 'reschedule_requested' && (
                 <Box mb={2}>

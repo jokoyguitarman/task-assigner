@@ -4,7 +4,8 @@ import { toDateOnly, parseDateOnly, instantToLocalDate, addDays } from '../lib/d
 import { 
   User, Task, TaskAssignment, Organization,
   StaffPosition, Outlet, StaffProfile, MonthlySchedule, 
-  DailySchedule, TaskCompletionProof, Invitation, PublicInvitation, InvitationFormData
+  DailySchedule, TaskCompletionProof, Invitation, PublicInvitation, InvitationFormData,
+  Reassignment
 } from '../types';
 
 // Helper function to check if Supabase is configured
@@ -159,6 +160,18 @@ const transformTaskCompletionProof = (row: any): TaskCompletionProof => ({
   fileSize: row.file_size,
   uploadedAt: new Date(row.uploaded_at),
   createdBy: row.created_by,
+});
+
+const transformReassignment = (row: any): Reassignment => ({
+  id: row.id,
+  assignmentId: row.assignment_id,
+  fromStaffId: row.from_staff_id || undefined,
+  toStaffId: row.to_staff_id || undefined,
+  reason: row.reason || undefined,
+  reassignedBy: row.reassigned_by || undefined,
+  reassignedAt: new Date(row.reassigned_at),
+  fromStaff: row.from_staff ? transformStaffProfile(row.from_staff) : undefined,
+  toStaff: row.to_staff ? transformStaffProfile(row.to_staff) : undefined,
 });
 
 const transformInvitation = (row: any): Invitation => ({
@@ -655,6 +668,10 @@ export const assignmentsAPI = {
     if (assignmentData.completionProof) updateData.completion_proof = assignmentData.completionProof;
     if (assignmentData.completionNotes !== undefined) updateData.completion_notes = assignmentData.completionNotes;
     if (assignmentData.completedByStaffId !== undefined) updateData.completed_by_staff_id = assignmentData.completedByStaffId || null;
+    // Only ever sent, never read. The database records it against the change of
+    // ownership and blanks the column, so a stale value cannot excuse a later
+    // reassignment.
+    if (assignmentData.reassignmentReason) updateData.reassignment_reason = assignmentData.reassignmentReason;
     if (assignmentData.minutesDeducted) updateData.minutes_deducted = assignmentData.minutesDeducted;
 
     const { data, error } = await supabase
@@ -738,6 +755,27 @@ export const assignmentsAPI = {
     if (error) throw error;
 
     return transformTaskAssignment(data);
+  },
+};
+
+// The ownership trail on an assignment. Read-only by design: the rows are written
+// by a database trigger, and the client has no insert, update or delete privilege,
+// so a branch cannot quietly rewrite why work changed hands.
+export const reassignmentsAPI = {
+  async getByAssignment(assignmentId: string): Promise<Reassignment[]> {
+    if (!isSupabaseConfigured()) {
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from('assignment_reassignments')
+      .select('*, from_staff:from_staff_id (id, name, employee_id), to_staff:to_staff_id (id, name, employee_id)')
+      .eq('assignment_id', assignmentId)
+      .order('reassigned_at', { ascending: true });
+
+    if (error) throw error;
+
+    return data.map(transformReassignment);
   },
 };
 
@@ -1606,7 +1644,7 @@ export const rescheduleAPI = {
         .from('task_assignments')
         .update({
           status: 'pending',
-          due_date: newDueDate.toISOString(),
+          due_date: toDateOnly(newDueDate),
           reschedule_approved_at: new Date().toISOString(),
           reschedule_approved_by: approvedBy,
           reschedule_new_due_date: newDueDate.toISOString(),
@@ -1710,18 +1748,15 @@ export const streakAPI = {
     }
 
     try {
-      const startOfDay = new Date(date);
-      startOfDay.setHours(0, 0, 0, 0);
-      
-      const endOfDay = new Date(date);
-      endOfDay.setHours(23, 59, 59, 999);
+      // assigned_date is a DATE, so compare it to one, not to an instant either
+      // side of local midnight.
+      const day = toDateOnly(date);
 
       const { data, error } = await supabase
         .from('task_assignments')
         .select('id')
         .eq('staff_id', staffId)
-        .gte('assigned_date', startOfDay.toISOString())
-        .lte('assigned_date', endOfDay.toISOString())
+        .eq('assigned_date', day)
         .limit(1);
 
       if (error) throw error;

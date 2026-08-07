@@ -65,6 +65,10 @@ const StaffDashboard: React.FC = () => {
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string>('');
   const [selectedStaffId, setSelectedStaffId] = useState<string>('');
+  // Name of whoever currently owns the task being reassigned, or null when the task
+  // is unclaimed and no reason is needed.
+  const [reassigningFrom, setReassigningFrom] = useState<string | null>(null);
+  const [reassignReason, setReassignReason] = useState('');
   const [availableStaffForAssignment, setAvailableStaffForAssignment] = useState<StaffProfile[]>([]);
   const [loadingAvailableStaff, setLoadingAvailableStaff] = useState(false);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
@@ -164,6 +168,17 @@ const StaffDashboard: React.FC = () => {
   const handleTakeTask = async (assignmentId: string) => {
     setSelectedAssignmentId(assignmentId);
     setSelectedStaffId('');
+    setReassignReason('');
+
+    // Taking on unclaimed work is free. Taking it off a named person is a
+    // reassignment, and the database will refuse one without a reason, so find out
+    // which of the two this is before opening the dialog.
+    const existing = [...assignments, ...unassignedTasks].find(a => a.id === assignmentId);
+    const currentOwner = existing?.staffId
+      ? allStaffProfiles.find(profile => profile.id === existing.staffId)
+      : undefined;
+    setReassigningFrom(currentOwner?.name || (existing?.staffId ? 'someone else' : null));
+
     setLoadingAvailableStaff(true);
     setAssignDialogOpen(true);
     
@@ -181,7 +196,12 @@ const StaffDashboard: React.FC = () => {
 
   const handleConfirmAssignment = async () => {
     if (!selectedStaffId || !selectedAssignmentId) return;
-    
+
+    if (reassigningFrom && reassignReason.trim().length < 5) {
+      setError(`Taking this task off ${reassigningFrom} needs a reason of at least 5 characters.`);
+      return;
+    }
+
     try {
       setError(null);
       setSuccessMessage(null);
@@ -192,6 +212,7 @@ const StaffDashboard: React.FC = () => {
       
       await assignmentsAPI.update(selectedAssignmentId, {
         staffId: selectedStaffId,
+        reassignmentReason: reassigningFrom ? reassignReason.trim() : undefined,
       });
       
       // Reload data to reflect changes
@@ -221,6 +242,8 @@ const StaffDashboard: React.FC = () => {
       setAssignDialogOpen(false);
       setSelectedAssignmentId('');
       setSelectedStaffId('');
+      setReassigningFrom(null);
+      setReassignReason('');
       setAvailableStaffForAssignment([]);
       setLoadingAvailableStaff(false);
       
@@ -231,7 +254,9 @@ const StaffDashboard: React.FC = () => {
       
     } catch (error) {
       console.error('Error assigning task:', error);
-      setError('Failed to assign task. Please try again.');
+      // The database enforces the reassignment rules, so show what it actually
+      // said rather than a generic failure the branch cannot act on.
+      setError(error instanceof Error ? error.message : 'Failed to assign task. Please try again.');
     }
   };
 
@@ -239,6 +264,8 @@ const StaffDashboard: React.FC = () => {
     setAssignDialogOpen(false);
     setSelectedAssignmentId('');
     setSelectedStaffId('');
+    setReassigningFrom(null);
+    setReassignReason('');
     setAvailableStaffForAssignment([]);
     setLoadingAvailableStaff(false);
   };
@@ -1502,10 +1529,12 @@ const StaffDashboard: React.FC = () => {
       <Dialog open={assignDialogOpen} onClose={handleCancelAssignment} maxWidth="sm" fullWidth>
         <DialogTitle>
           <Typography variant="h6" fontWeight={600}>
-            Assign Task to Team Member
+            {reassigningFrom ? 'Reassign Task' : 'Assign Task to Team Member'}
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Who will be responsible for completing this task?
+            {reassigningFrom
+              ? `${reassigningFrom} currently owns this task. Moving it is recorded, so say why.`
+              : 'Who will be responsible for completing this task?'}
           </Typography>
         </DialogTitle>
         <DialogContent>
@@ -1559,6 +1588,21 @@ const StaffDashboard: React.FC = () => {
                 noOptionsText="No available team members found for this task"
               />
             )}
+
+            {reassigningFrom && !loadingAvailableStaff && (
+              <TextField
+                label="Why is this moving?"
+                placeholder="e.g. called in sick, sent to the other branch, shift swapped"
+                value={reassignReason}
+                onChange={(e) => setReassignReason(e.target.value)}
+                required
+                multiline
+                minRows={2}
+                fullWidth
+                sx={{ mt: 3 }}
+                helperText="Kept as a permanent record on this task and cannot be edited later."
+              />
+            )}
           </Box>
         </DialogContent>
         <DialogActions>
@@ -1569,7 +1613,7 @@ const StaffDashboard: React.FC = () => {
             onClick={handleConfirmAssignment} 
             variant="contained" 
             color="info"
-            disabled={!selectedStaffId}
+            disabled={!selectedStaffId || (!!reassigningFrom && reassignReason.trim().length < 5)}
             sx={{
               borderRadius: 2,
               px: 3,

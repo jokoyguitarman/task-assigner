@@ -548,6 +548,36 @@ the machinery `0003` dismantled. It did not pin `search_path`, and it copied the
 name out of auth metadata on every update of the auth row, so renaming a
 principal in the app would silently revert. Dropped in `0004`.
 
+## 0006: a branch may reassign, but must say why
+
+The guard in `0003` forbade a branch from touching `staff_id` at all, which killed a
+feature the app was built around: the assignment form offers to leave the staff
+field empty so "all available staff at the outlet can take this task", and the
+branch dashboard has a Take Task flow for exactly that. Verified broken against the
+live database before changing anything — every attempt raised the guard's message.
+
+The rule now, all enforced in the trigger and confirmed by impersonation:
+
+| Attempt | Result |
+| --- | --- |
+| Branch claims an unowned task | allowed, no reason needed |
+| Branch reassigns owned work with no reason | refused |
+| Branch reassigns owned work with under 5 characters | refused |
+| Branch assigns to another branch's roster member | refused |
+| Branch reassigns with a real reason | allowed and recorded |
+| Branch moves the deadline | still refused |
+| Owner reassigns | allowed, reason optional — they are the authority |
+| Anyone edits or deletes the trail afterwards | refused, no privilege exists |
+
+`task_assignments.reassignment_reason` is write-only. The trigger copies it into
+`assignment_reassignments` and blanks the column, because a PATCH that omits a
+column leaves the old value in `NEW`, so keeping it would let a stale reason excuse
+a later reassignment. It also means two reassignments can share identical wording,
+which a "must differ from last time" check would have wrongly rejected.
+
+The trigger is now `SECURITY DEFINER` so it can write history the client has no
+privilege to write itself. `search_path` stays pinned.
+
 ## Verified by impersonation, after the hook was registered
 
 Policies were tested by becoming each principal in SQL — `SET LOCAL ROLE
