@@ -1,148 +1,147 @@
 # Task Assigner
 
-A comprehensive task assignment web application with mobile support for Admin and Staff users. Built with React, TypeScript, and Material-UI.
+An accountability tool for small restaurant groups. The owner writes down the
+things that must happen — take the garbage out at close, check the piping for
+leaks, set the mouse traps — assigns them to people on a branch roster, and gets
+proof back. The point is that the owner stops being the reminder system.
+
+Built with React 18, TypeScript, Material-UI and Supabase.
+
+## Who logs in
+
+There are two kinds of account, and they are both real Supabase auth users:
+
+- **Owner (`admin`)** — sees every branch in the organization. Creates tasks,
+  assigns them, enrolls staff, invites branches, reads reports.
+- **Branch (`outlet`)** — one shared login per location, used on the store's
+  phone or tablet. Sees only that branch's assignments and roster.
+
+**Staff do not log in.** A staff member is a roster entry belonging to a branch:
+a name, an employee number, a position, a hire date, and a streak. Tasks are
+assigned to roster entries, and whoever is holding the branch device records the
+completion. This is why the app asks who is completing a task rather than
+inferring it from the session.
+
+A login can only be created two ways, both server-side so the role is never
+chosen by the browser:
+
+- A new owner signs up, then `bootstrap_organization` creates the organization
+  and their profile.
+- An owner invites a branch, naming the email address that branch will use. The
+  app does not send the invitation — it shows the owner a link to pass along.
+  When the branch signs up through it, `redeem_outlet_invitation` links the
+  account to the outlet, and it only redeems for the address the invitation
+  named, so a leaked link is not enough on its own.
+
+If an account signs in without a profile — a confirmation email opened on
+another device, say — the app routes it to `/setup` to finish one of the two
+flows above.
 
 ## Features
 
-### Admin Features
-- **Task Management**: Create, edit, and delete tasks with estimated completion times
-- **Assignment System**: Assign tasks to staff members with due dates
-- **Recurring Tasks**: Schedule daily, weekly, or monthly recurring tasks
-- **Time Tracking**: Monitor task completion and deduct time for overdue tasks
-- **Dashboard**: Overview of all assignments, pending tasks, and completion statistics
+**Tasks and assignments.** Tasks carry an estimated duration and a priority.
+Assignments carry a due date and time, a status, and optionally a photo or video
+proof plus completion notes. Recurring tasks can repeat daily, weekly or monthly.
+Overdue assignments deduct their estimated time from the assignee's record.
 
-### Staff Features
-- **Task Viewing**: View assigned tasks with details and due dates
-- **Completion Proof**: Submit photo or video proof when completing tasks
-- **Progress Tracking**: Monitor personal task completion and time efficiency
-- **Mobile Optimized**: Responsive design for mobile devices
+**Scheduling.** A monthly view sets each staff member's days off and rest day;
+a daily view sets which outlet they work and their shift times. A day marked off
+cannot also carry shift data, which the database enforces.
 
-### Technical Features
-- **PWA Support**: Progressive Web App with offline capabilities
-- **Role-based Access**: Separate interfaces for Admin and Staff users
-- **Real-time Updates**: Live task status updates
-- **Media Capture**: Built-in camera functionality for task completion proof
-- **Responsive Design**: Works seamlessly on desktop and mobile devices
+**Accountability.** Completion proofs go to a private storage bucket and are
+read back through signed URLs. Streaks track consecutive clear boards per staff
+member. A leaderboard and per-staff performance view sit on top of the same data.
 
-## Demo Accounts
+**Operations.** Branch invitations, subscription tiers with per-tier limits on
+admins, branches and employees, CSV and PDF export of completion reports, and
+in-app notifications over Supabase Realtime.
 
-- **Admin**: `admin@taskassigner.com` (any password)
-- **Staff**: `staff1@taskassigner.com` (any password)
+**Mobile.** Installable PWA with a service worker, direct camera capture for
+proof, and touch-sized controls — it is meant to be used on a store phone.
 
-## Installation
+## Setup
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd task-assigner
-   ```
+```bash
+npm install
+cp .env.example .env.local   # then fill in the two values below
+npm start
+```
 
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
+`.env.local` needs the project URL and anon key from
+**Supabase > Project Settings > API**:
 
-3. **Start the development server**
-   ```bash
-   npm start
-   ```
+```
+REACT_APP_SUPABASE_URL=https://<project-id>.supabase.co
+REACT_APP_SUPABASE_ANON_KEY=<anon key>
+```
 
-4. **Open your browser**
-   Navigate to `http://localhost:3000`
+The anon key is safe in the browser; every table is protected by row-level
+security. There is no service-role key in this app and there should never be one.
 
-## Available Scripts
+For the database itself, see [supabase/README.md](supabase/README.md). The
+schema is applied by one transactional migration, and the app will not work
+until the access token hook described there is registered, because every policy
+reads claims that only the hook can mint.
 
-- `npm start` - Runs the app in development mode
-- `npm build` - Builds the app for production
-- `npm test` - Launches the test runner
-- `npm run lint` - Runs ESLint for code quality
-- `npm run format` - Formats code with Prettier
+## Scripts
 
-## Project Structure
+| Command | Does |
+| --- | --- |
+| `npm start` | Dev server on `http://localhost:3000` |
+| `npm run build` | Production build |
+| `npm test` | Test runner |
+| `npm run lint` | ESLint over `src` |
+| `npm run format` | Prettier over `src` |
+| `npx tsc --noEmit` | Type check without emitting |
+
+## Layout
 
 ```
 src/
 ├── components/
-│   ├── admin/           # Admin-specific components
-│   ├── staff/           # Staff-specific components
-│   ├── auth/            # Authentication components
-│   └── layout/          # Layout components
-├── contexts/            # React contexts (Auth, etc.)
-├── services/            # API services and data management
-├── types/               # TypeScript type definitions
-└── App.tsx              # Main application component
+│   ├── admin/     Owner screens: dashboard, tasks, assignments, staff,
+│   │              outlets, invitations, schedulers, reports, leaderboard
+│   ├── staff/     Branch screens: dashboard, task completion, performance
+│   ├── auth/      Login, owner signup, invitation redemption, /setup
+│   └── layout/    Shell, navigation, notifications, usage stats
+├── contexts/      AuthContext — identity from JWT claims
+├── lib/           Supabase client, JWT claim reader
+├── services/      supabaseService.ts — all database access
+└── types/         Shared TypeScript types
+supabase/
+├── migrations/    Numbered SQL, applied in order
+├── legacy-sql/    Archive of the pre-migration scripts, for reference only
+└── SCHEMA_NOTES.md  Why the schema is shaped the way it is
 ```
 
-## Technology Stack
+`src/services/supabaseService.ts` is the only module that talks to the database.
+Components call it; they never build queries themselves.
 
-- **Frontend**: React 18, TypeScript
-- **UI Framework**: Material-UI (MUI)
-- **State Management**: React Query, React Context
-- **Routing**: React Router DOM
-- **Forms**: React Hook Form
-- **Date Handling**: date-fns, MUI X Date Pickers
-- **PWA**: Service Workers, Web App Manifest
-- **Build Tool**: Create React App
+## Where identity comes from
 
-## Key Components
+`AuthContext` reads `user_role`, `organization_id` and `outlet_id` out of the
+access token, minted by a Postgres hook at sign-in. The same claims drive the
+row-level security policies, so what the UI shows and what the database will
+return cannot drift apart. Nothing about a user's role or organization is
+supplied by the browser.
 
-### Admin Components
-- `Dashboard` - Overview of all tasks and assignments
-- `TaskList` - Manage tasks (create, edit, delete)
-- `AssignmentList` - Manage task assignments
-- `TaskForm` - Create/edit task form
-- `AssignmentForm` - Create/edit assignment form
+A consequence worth knowing: after any change to a user's role or outlet, that
+user must sign out and back in, because their existing token still carries the
+old claims.
 
-### Staff Components
-- `StaffDashboard` - Personal task overview
-- `TaskCompletion` - Complete tasks with proof submission
+## Known gaps
 
-### Shared Components
-- `LoginForm` - Authentication interface
-- `AppLayout` - Main application layout with navigation
-
-## API Structure
-
-The application uses a mock API service that simulates backend functionality:
-
-- `authAPI` - User authentication
-- `tasksAPI` - Task management
-- `assignmentsAPI` - Task assignment management
-- `usersAPI` - User management
-- `workingHoursAPI` - Time tracking
-
-## Mobile Features
-
-- **Responsive Design**: Optimized for mobile screens
-- **Touch-friendly**: Large buttons and touch targets
-- **Camera Integration**: Direct camera access for task completion
-- **PWA Installation**: Can be installed as a mobile app
-- **Offline Support**: Basic offline functionality with service workers
-
-## Time Tracking System
-
-- Tasks have estimated completion times in minutes
-- Overdue tasks automatically deduct time from staff working hours
-- Admin can monitor time efficiency and completion rates
-- Staff can view their time allocation and progress
-
-## Future Enhancements
-
-- Real backend API integration
-- Push notifications for task assignments
-- Advanced reporting and analytics
-- Team collaboration features
-- Integration with calendar systems
-- Advanced media handling and storage
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
+- Recurring-task materialization and the overdue sweep run in the browser, so
+  they only happen while someone has the app open. Both belong in scheduled jobs.
+- The scheduler knows who is off, but nothing yet reacts when a task's assignee
+  turns out to be away — the owner has to notice.
+- Invitations are not emailed. The owner gets a link and has to send it.
+  [email-integration-setup.md](email-integration-setup.md) sketches the options.
+- Completion records who the task was assigned to, not who tapped the button.
+  On a shared branch device those can differ; the column exists for it.
+- Two outlets in the live data have no login yet; invite them from Outlet
+  Management.
 
 ## License
 
-This project is licensed under the MIT License.
+MIT.
