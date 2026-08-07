@@ -548,6 +548,53 @@ the machinery `0003` dismantled. It did not pin `search_path`, and it copied the
 name out of auth metadata on every update of the auth row, so renaming a
 principal in the app would silently revert. Dropped in `0004`.
 
+## Verified by impersonation, after the hook was registered
+
+Policies were tested by becoming each principal in SQL — `SET LOCAL ROLE
+authenticated` with a hand-built `request.jwt.claims` — rather than by reading
+them. Write tests ran inside a `DO` block that ends in `RAISE EXCEPTION`, so the
+report comes back in the error message and nothing persists.
+
+| Attempt | Branch | Owner | anon |
+| --- | --- | --- | --- |
+| Read assignments | 53 of 58, all its own | all 58 | denied |
+| Read roster | 6 of 8, all its own | all 8 | denied |
+| Read outlets | 1, itself | all 4 | denied |
+| Read invitations / audit log | 0 | visible | denied |
+| Complete own task | allowed | allowed | denied |
+| Complete another branch's task | 0 rows, invisible | n/a | denied |
+| Move a due date | blocked by trigger | allowed | denied |
+| Reassign, or move work to another outlet | blocked by trigger | allowed | denied |
+| Change own role | blocked by column grant | blocked by column grant | denied |
+| Raise own plan limits | blocked | blocked, after `0005` | denied |
+| Tier-limit RPC | own org only | own org only | denied |
+| Invitation lookup by token | works | works | works, and must |
+
+Two things this found that reading the policy set did not.
+
+### An owner could raise their own plan limits
+
+`bootstrap_organization` sets the tier and its limits itself, specifically so a
+signup cannot award itself a higher plan. That was pointless while
+`org_admin_update` allowed the owner to update their own organization row and
+nothing narrowed which columns: `max_employees = 9999` succeeded.
+
+Same shape as the `users.role` escalation, and the same fix — a policy chooses
+the row, a grant chooses the columns. `0005` leaves the owner `name` and
+`timezone` and takes the rest. It initially looked blocked only because the test
+also set `subscription_tier = 'enterprise'`, which failed a check constraint; the
+limit change on its own went through.
+
+### A branch could read every schedule in the organization
+
+`staff_profiles` is scoped to the branch but the schedule policies were scoped to
+the organization, so a branch received all 16 monthly schedules when 6 of the 8
+roster members were its own. It leaked other branches' shift patterns and days
+off, attached to staff ids it could not resolve to names. `TeamScheduler`
+iterates the roster and looks up each member, so it never used the extra rows.
+After `0005` the branch sees 12 monthly and 79 daily rows, all its own, and the
+owner still sees all 16 and 109.
+
 ### Remaining advisor warnings, all expected
 
 The security advisor reports no errors. What is left is every table being visible
