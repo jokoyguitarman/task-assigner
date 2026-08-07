@@ -30,6 +30,7 @@ import {
   CalendarMonth,
   Assessment,
   Schedule,
+  Email,
 } from '@mui/icons-material';
 import NotificationBell from '../common/NotificationBell';
 import UsageStats from './UsageStats';
@@ -122,6 +123,13 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         text: 'Outlet Management',
         icon: <Business />,
         path: '/outlets',
+      },
+      // An invitation is now the only way a branch login can come into existence,
+      // so it should not be reachable only from a dashboard quick action.
+      {
+        text: 'Branch Invitations',
+        icon: <Email />,
+        path: '/invitations',
       },
       {
         text: 'Weekly Scheduler',
