@@ -12,6 +12,7 @@ import {
   CircularProgress
 } from '@mui/material';
 import { rescheduleAPI } from '../../services/supabaseService';
+import { useAuth } from '../../contexts/AuthContext';
 import { TaskAssignment } from '../../types';
 
 interface RescheduleRequestDialogProps {
@@ -31,6 +32,7 @@ const RescheduleRequestDialog: React.FC<RescheduleRequestDialogProps> = ({
   taskTitle,
   outletName
 }) => {
+  const { user } = useAuth();
   const [reason, setReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,13 +47,12 @@ const RescheduleRequestDialog: React.FC<RescheduleRequestDialogProps> = ({
     setError(null);
 
     try {
-      // Get current user ID from localStorage or context
-      const userData = localStorage.getItem('user');
-      if (!userData) {
-        throw new Error('User not found');
+      // Read from the auth context rather than localStorage, which no longer
+      // holds a user: identity comes from the access token now.
+      if (!user) {
+        throw new Error('You are not signed in');
       }
-      
-      const user = JSON.parse(userData);
+
       await rescheduleAPI.requestReschedule(assignment.id, reason.trim(), user.id);
       
       onSuccess();

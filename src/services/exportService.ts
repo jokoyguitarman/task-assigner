@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import Papa from 'papaparse';
+import { toDateOnly } from '../lib/dates';
 
 export interface ExportOptions {
   format: 'pdf' | 'jpeg' | 'csv';
@@ -236,8 +237,9 @@ class ExportService {
       yPosition += 15;
 
       // Generate calendar grid
-      const daysInMonth = new Date(data.year, new Date(`${data.month} 1, ${data.year}`).getMonth() + 1, 0).getDate();
-      const firstDay = new Date(`${data.month} 1, ${data.year}`).getDay();
+      const monthIndex = new Date(`${data.month} 1, ${data.year}`).getMonth();
+      const daysInMonth = new Date(data.year, monthIndex + 1, 0).getDate();
+      const firstDay = new Date(data.year, monthIndex, 1).getDay();
       
       // Calendar headers
       const dayHeaders = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -270,26 +272,28 @@ class ExportService {
             // Day cell
             pdf.rect(xPosition, yPosition, cellWidth, cellHeight);
             pdf.text(currentDay.toString(), xPosition + 2, yPosition + 10);
-            
-            // Add staff info for this day
-            const currentDate = new Date(data.year, new Date(`${data.month} 1, ${data.year}`).getMonth(), currentDay);
-            const dateString = currentDate.toISOString().split('T')[0];
-            
+
+            // The cell's calendar day. Deriving it with toISOString() shifted the
+            // whole grid by a day east of Greenwich, so each cell showed the
+            // previous day's shifts.
+            const cellX = xPosition;
+            const dateString = toDateOnly(new Date(data.year, monthIndex, currentDay));
+
             let staffY = yPosition + 12;
             data.staffSchedules.forEach(staff => {
               const daySchedule = staff.dailySchedules.find(ds => ds.date === dateString);
               if (daySchedule) {
                 if (daySchedule.isDayOff) {
                   pdf.setFontSize(6);
-                  pdf.text('OFF', xPosition + 2, staffY);
+                  pdf.text('OFF', cellX + 2, staffY);
                 } else if (daySchedule.timeIn && daySchedule.timeOut) {
                   pdf.setFontSize(6);
-                  pdf.text(`${daySchedule.timeIn}-${daySchedule.timeOut}`, xPosition + 2, staffY);
+                  pdf.text(`${daySchedule.timeIn}-${daySchedule.timeOut}`, cellX + 2, staffY);
                 }
                 staffY += 3;
               }
             });
-            
+
             currentDay++;
           }
           xPosition += cellWidth;

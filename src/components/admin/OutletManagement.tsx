@@ -47,8 +47,6 @@ const OutletManagement: React.FC = () => {
     address: '',
     phone: '',
     email: '',
-    username: '',
-    password: '',
   });
   const [error, setError] = useState<string | null>(null);
 
@@ -76,8 +74,6 @@ const OutletManagement: React.FC = () => {
         address: outlet.address || '',
         phone: outlet.phone || '',
         email: outlet.email || '',
-        username: outlet.username || '',
-        password: outlet.password || '',
       });
     } else {
       setEditingOutlet(null);
@@ -100,8 +96,6 @@ const OutletManagement: React.FC = () => {
       address: '',
       phone: '',
       email: '',
-      username: '',
-      password: '',
     });
     setError(null);
   };

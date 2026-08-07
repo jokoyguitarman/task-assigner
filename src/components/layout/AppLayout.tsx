@@ -99,8 +99,8 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         path: '/tasks',
       },
     ] : []),
-    // Show Schedules and Performance menus for staff and outlet users
-    ...(user?.role === 'staff' || user?.role === 'outlet' ? [
+    // Show Schedules and Performance menus for branch users
+    ...(user?.role === 'outlet' ? [
       {
         text: 'Team Schedules',
         icon: <Schedule />,
@@ -117,11 +117,6 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         text: 'Staff Management',
         icon: <GroupAdd />,
         path: '/staff',
-      },
-      {
-        text: 'Staff Accounts',
-        icon: <Person />,
-        path: '/staff-accounts',
       },
       {
         text: 'Outlet Management',

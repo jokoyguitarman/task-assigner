@@ -21,7 +21,6 @@ import {
   Login as LoginIcon,
   AdminPanelSettings as AdminIcon,
   Person as PersonIcon,
-  CheckCircle as CheckIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -233,7 +232,7 @@ const LoginForm: React.FC = () => {
                       </Button>
                       <Button
                         variant="outlined"
-                        onClick={() => navigate('/admin-signup')}
+                        onClick={() => navigate('/restaurant-signup')}
                         sx={{
                           textTransform: 'none',
                           borderRadius: 2,

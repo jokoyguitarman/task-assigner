@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { User, AuthContextType, Outlet, Organization } from '../types';
-import { authAPI, outletsAPI, usersAPI } from '../services/supabaseService';
+import { authAPI, outletsAPI, organizationsAPI, ProfileNotProvisionedError } from '../services/supabaseService';
+import { readClaims } from '../lib/authClaims';
 import { supabase } from '../lib/supabase';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -15,330 +16,137 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [currentOutlet, setCurrentOutlet] = useState<Outlet | null>(null);
   const [isOutletUser, setIsOutletUser] = useState(false);
   const [organization, setOrganization] = useState<Organization | null>(null);
+  const [needsSetup, setNeedsSetup] = useState(false);
+
+  const clearIdentity = useCallback(() => {
+    setUser(null);
+    setCurrentOutlet(null);
+    setIsOutletUser(false);
+    setOrganization(null);
+    setNeedsSetup(false);
+  }, []);
+
+  // Establishes who the signed-in account is.
+  //
+  // Identity comes from the access token, which the database stamped via the
+  // custom access token hook, and row-level security enforces exactly the same
+  // values. The previous implementation guessed from user_metadata and fell back
+  // to role 'admin' with a hardcoded organization id, which meant the client
+  // believed it was an owner while the database disagreed.
+  //
+  // No claims means no profile yet: a new owner before creating their
+  // organization, or an invited branch before redeeming its invitation. Both
+  // route to setup rather than an empty dashboard.
+  const loadIdentity = useCallback(async () => {
+    const { data } = await supabase.auth.getSession();
+    const session = data.session;
+
+    if (!session?.user) {
+      clearIdentity();
+      return;
+    }
+
+    const claims = readClaims(session);
+
+    if (!claims.role || !claims.organizationId) {
+      setUser(null);
+      setOrganization(null);
+      setCurrentOutlet(null);
+      setIsOutletUser(false);
+      setNeedsSetup(true);
+      return;
+    }
+
+    setNeedsSetup(false);
+
+    const profile = await authAPI.getCurrentUser();
+
+    // Claims exist but the profile is unreadable. Trust the token for identity
+    // and fall back to the session for the display name only.
+    setUser(
+      profile ?? {
+        id: session.user.id,
+        email: session.user.email || '',
+        name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'User',
+        role: claims.role,
+        organizationId: claims.organizationId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+    );
+
+    const org = await organizationsAPI.getById(claims.organizationId);
+    setOrganization(org);
+
+    if (claims.role === 'outlet' && claims.outletId) {
+      setIsOutletUser(true);
+      try {
+        setCurrentOutlet(await outletsAPI.getById(claims.outletId));
+      } catch (error) {
+        console.error('Could not load the branch for this session:', error);
+        setCurrentOutlet(null);
+      }
+    } else {
+      setIsOutletUser(false);
+      setCurrentOutlet(null);
+    }
+  }, [clearIdentity]);
 
   useEffect(() => {
-    // Check for existing session on app load
-    const checkSession = async () => {
-      try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        
-        if (error) {
-          console.error('Error getting session:', error);
-          setIsLoading(false);
-          return;
-        }
+    let active = true;
 
-        if (session?.user) {
-          console.log('🔐 Session found, user:', session.user.id);
-          console.log('🔐 User metadata:', session.user.user_metadata);
-          
-          // Set loading to false immediately to prevent hanging
-          console.log('🔐 Setting loading to false immediately');
-          setIsLoading(false);
-          
-          // Create user object from session data first (non-blocking)
-          // Try to determine role from metadata if available
-          const roleFromMetadata = session.user.user_metadata?.role || 'admin';
-          const sessionUser: User = {
-            id: session.user.id,
-            email: session.user.email || '',
-            name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'User',
-            role: (roleFromMetadata === 'staff' || roleFromMetadata === 'outlet') ? roleFromMetadata : 'admin',
-            organizationId: session.user.user_metadata?.organization_id || '00000000-0000-0000-0000-000000000001',
-            isPrimaryAdmin: session.user.user_metadata?.is_primary_admin || false,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-            currentStreak: 0,
-            longestStreak: 0
-          };
-          
-          console.log('🔐 Using session user data initially:', sessionUser);
-          setUser(sessionUser);
-          
-          // Try to load user data from database in background (non-blocking with timeout)
-          Promise.race([
-            usersAPI.getById(session.user.id),
-            new Promise<never>((_, reject) => 
-              setTimeout(() => reject(new Error('Database lookup timeout')), 3000)
-            )
-          ])
-            .then((userData: User) => {
-              console.log('🔐 Loaded user data from database:', userData);
-              setUser(userData);
-              
-              // Load outlet data if this is an outlet user
-              loadUserTypeData(userData).catch(error => {
-                console.error('🔐 Error loading outlet data:', error);
-              });
-            })
-            .catch(error => {
-              console.warn('🔐 Database lookup failed or timed out, using session data:', error);
-              // Keep using session data - no need to update user again
-            });
-          
-          // Load organization data (non-blocking)
-          console.log('🔐 Loading organization data...');
-          loadOrganizationData(sessionUser.organizationId).catch(error => {
-            console.error('🔐 Error loading organization:', error);
-          });
-        } else {
-          console.log('🔐 No session found');
-          // Fallback to localStorage for backward compatibility
-          const savedUser = localStorage.getItem('user');
-          if (savedUser) {
-            try {
-              const parsedUser = JSON.parse(savedUser);
-              setUser(parsedUser);
-              
-              // Also load outlet data from localStorage if it exists
-              const savedOutlet = localStorage.getItem('currentOutlet');
-              const savedIsOutletUser = localStorage.getItem('isOutletUser');
-              
-              if (savedOutlet && savedIsOutletUser === 'true') {
-                try {
-                  const parsedOutlet = JSON.parse(savedOutlet);
-                  setCurrentOutlet(parsedOutlet);
-                  setIsOutletUser(true);
-                } catch (error) {
-                  console.error('Error parsing saved outlet:', error);
-                  localStorage.removeItem('currentOutlet');
-                  localStorage.removeItem('isOutletUser');
-                }
-              } else {
-                // If no saved outlet data, load it fresh from the database
-                loadUserTypeData(parsedUser);
-              }
-            } catch (error) {
-              console.error('Error parsing saved user:', error);
-              localStorage.removeItem('user');
-            }
-          }
-          setIsLoading(false);
-        }
+    const run = async () => {
+      try {
+        await loadIdentity();
       } catch (error) {
-        console.error('Error checking session:', error);
-        setIsLoading(false);
+        console.error('Error establishing session:', error);
+        if (active) clearIdentity();
+      } finally {
+        if (active) setIsLoading(false);
       }
     };
 
-    checkSession();
+    run();
 
-    // Listen for auth state changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('🔐 Auth state changed:', event, session?.user?.id);
-      
-      if (event === 'SIGNED_IN' && session?.user) {
-        console.log('🔐 SIGNED_IN event, user:', session.user.id);
-        
-        // Create user object from session data first (non-blocking)
-        // Try to determine role from metadata if available
-        const roleFromMetadata = session.user.user_metadata?.role || 'admin';
-        const sessionUser: User = {
-          id: session.user.id,
-          email: session.user.email || '',
-          name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'User',
-          role: (roleFromMetadata === 'staff' || roleFromMetadata === 'outlet') ? roleFromMetadata : 'admin',
-          organizationId: session.user.user_metadata?.organization_id || '00000000-0000-0000-0000-000000000001',
-          isPrimaryAdmin: session.user.user_metadata?.is_primary_admin || false,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          currentStreak: 0,
-          longestStreak: 0
-        };
-        
-        console.log('🔐 Using session user data on SIGNED_IN:', sessionUser);
-        setUser(sessionUser);
-        
-        // Try to load user data from database in background (non-blocking with timeout)
-        Promise.race([
-          usersAPI.getById(session.user.id),
-          new Promise<never>((_, reject) => 
-            setTimeout(() => reject(new Error('Database lookup timeout')), 3000)
-          )
-        ])
-          .then((userData: User) => {
-            console.log('🔐 Loaded user data from database on SIGNED_IN:', userData);
-            setUser(userData);
-            
-            // Load outlet data if this is an outlet user
-            loadUserTypeData(userData).catch(error => {
-              console.error('🔐 Error loading outlet data on SIGNED_IN:', error);
-            });
-          })
-          .catch(error => {
-            console.warn('🔐 Database lookup failed or timed out on SIGNED_IN, using session data:', error);
-            // Keep using session data - no need to update user again
-          });
-        
-        // Load organization data (non-blocking)
-        console.log('🔐 Loading organization data on SIGNED_IN...');
-        loadOrganizationData(sessionUser.organizationId).catch(error => {
-          console.error('🔐 Error loading organization on SIGNED_IN:', error);
-        });
-        // Note: isLoading is not set here as it's handled in the main session check
-      } else if (event === 'SIGNED_OUT') {
-        setUser(null);
-        setCurrentOutlet(null);
-        setIsOutletUser(false);
-        setOrganization(null);
-        localStorage.removeItem('user');
-        localStorage.removeItem('currentOutlet');
-        localStorage.removeItem('isOutletUser');
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') {
+        clearIdentity();
+        return;
+      }
+
+      // TOKEN_REFRESHED matters as much as SIGNED_IN: it is how an account that
+      // has just been provisioned picks up its new claims.
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+        loadIdentity().catch((error) => console.error('Error reloading session:', error));
       }
     });
 
     return () => {
+      active = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [loadIdentity, clearIdentity]);
 
-
-  // Function to load organization data
-  const loadOrganizationData = async (organizationId: string) => {
-    // Set default organization immediately to avoid blocking
-    const defaultOrg: Organization = {
-      id: organizationId,
-      name: 'Cucina Ilocana', // Use the actual organization name
-      domain: undefined,
-      subscriptionTier: 'professional', // Set to highest tier
-      subscriptionStatus: 'active',
-      maxAdmins: 5,
-      maxRestaurants: 7,
-      maxEmployees: 70,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    setOrganization(defaultOrg);
-    console.log('🏢 Set default organization immediately');
-    
-    try {
-      console.log('🏢 Loading organization data for ID:', organizationId);
-      
-      // Reduced timeout to 2 seconds for faster fallback
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Organization loading timeout')), 2000)
-      );
-      
-      const queryPromise = supabase
-        .from('organizations')
-        .select('*')
-        .eq('id', organizationId)
-        .single();
-      
-      const { data, error } = await Promise.race([queryPromise, timeoutPromise]) as any;
-
-      if (error) {
-        console.error('❌ Error loading organization:', error);
-        // Don't return early, set a default organization
-        const defaultOrg: Organization = {
-          id: organizationId,
-          name: 'Default Organization',
-          domain: undefined,
-          subscriptionTier: 'free',
-          subscriptionStatus: 'active',
-          maxAdmins: 1,
-          maxRestaurants: 1,
-          maxEmployees: 10,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
-        setOrganization(defaultOrg);
-        return;
-      }
-
-      if (data) {
-        console.log('✅ Organization data loaded:', data);
-        const org: Organization = {
-          id: data.id,
-          name: data.name,
-          domain: data.domain,
-          subscriptionTier: data.subscription_tier,
-          subscriptionStatus: data.subscription_status,
-          maxAdmins: data.max_admins,
-          maxRestaurants: data.max_restaurants,
-          maxEmployees: data.max_employees,
-          createdAt: new Date(data.created_at),
-          updatedAt: new Date(data.updated_at),
-        };
-        setOrganization(org);
-      } else {
-        console.log('⚠️ No organization data found, using default');
-        const defaultOrg: Organization = {
-          id: organizationId,
-          name: 'Default Organization',
-          domain: undefined,
-          subscriptionTier: 'free',
-          subscriptionStatus: 'active',
-          maxAdmins: 1,
-          maxRestaurants: 1,
-          maxEmployees: 10,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
-        setOrganization(defaultOrg);
-      }
-    } catch (error) {
-      console.error('❌ Error loading organization data:', error);
-      // Set a default organization even on error
-      const defaultOrg: Organization = {
-        id: organizationId,
-        name: 'Default Organization',
-        domain: undefined,
-        subscriptionTier: 'free',
-        subscriptionStatus: 'active',
-        maxAdmins: 1,
-        maxRestaurants: 1,
-        maxEmployees: 10,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-      setOrganization(defaultOrg);
-      console.log('✅ Default organization set due to error');
-    }
-  };
-
-  // Function to detect user type based on role in public.users table
-  const loadUserTypeData = async (user: User) => {
-    try {
-      // Check if user is an outlet based on their role and associated outlet
-      if (user.role === 'outlet') {
-        // Find the outlet associated with this user
-        const outlets = await outletsAPI.getAll();
-        const outlet = outlets.find(o => o.userId === user.id);
-        
-        if (outlet) {
-          setCurrentOutlet(outlet);
-          setIsOutletUser(true);
-          localStorage.setItem('currentOutlet', JSON.stringify(outlet));
-          localStorage.setItem('isOutletUser', 'true');
-        }
-      } else {
-        // Not an outlet user
-        setCurrentOutlet(null);
-        setIsOutletUser(false);
-        localStorage.removeItem('currentOutlet');
-        localStorage.removeItem('isOutletUser');
-      }
-    } catch (error) {
-      console.error('Error loading user type data:', error);
-      setCurrentOutlet(null);
-      setIsOutletUser(false);
-    }
+  // Called after bootstrap_organization or redeem_outlet_invitation. The current
+  // token predates the profile and carries no claims, so it has to be reissued
+  // before anything is readable.
+  const refreshIdentity = async (): Promise<void> => {
+    await supabase.auth.refreshSession();
+    await loadIdentity();
   };
 
   const login = async (email: string, password: string): Promise<void> => {
     setIsLoading(true);
     try {
-      // Use Supabase authentication
-      const user = await authAPI.login(email, password);
-      setUser(user);
-      localStorage.setItem('user', JSON.stringify(user));
-      
-      // Load outlet data if this is an outlet user
-      await loadUserTypeData(user);
+      await authAPI.login(email, password);
+      await loadIdentity();
     } catch (error) {
+      if (error instanceof ProfileNotProvisionedError) {
+        setNeedsSetup(true);
+        return;
+      }
       console.error('Login error:', error);
-      throw new Error('Login failed');
+      throw error instanceof Error ? error : new Error('Login failed');
     } finally {
       setIsLoading(false);
     }
@@ -350,12 +158,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
-      setUser(null);
-      setCurrentOutlet(null);
-      setIsOutletUser(false);
-      localStorage.removeItem('user');
-      localStorage.removeItem('currentOutlet');
-      localStorage.removeItem('isOutletUser');
+      clearIdentity();
     }
   };
 
@@ -367,6 +170,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     currentOutlet,
     isOutletUser,
     organization,
+    needsSetup,
+    refreshIdentity,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,15 +1,30 @@
+// A principal: someone who signs in. There are exactly two kinds.
+//
+//   admin  - the owner, sees the whole organization
+//   outlet - a branch, signing in on the shared store phone, sees itself
+//
+// Staff are NOT principals. They are roster entries (see StaffProfile) that own
+// and complete tasks but never log in.
 export interface User {
   id: string;
   email: string;
   name: string;
-  role: 'admin' | 'staff' | 'outlet';
+  role: PrincipalRole;
   organizationId: string;
   isPrimaryAdmin?: boolean;
-  currentStreak: number;
-  longestStreak: number;
-  lastClearBoardDate?: Date;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export type PrincipalRole = 'admin' | 'outlet';
+
+// Stamped into the access token by the custom_access_token_hook and enforced by
+// row-level security. This is the authoritative answer to who the caller is;
+// anything derived from user_metadata is client-supplied and must not be trusted.
+export interface AuthClaims {
+  role?: PrincipalRole;
+  organizationId?: string;
+  outletId?: string;
 }
 
 export interface Task {
@@ -30,14 +45,19 @@ export interface Task {
 export interface TaskAssignment {
   id: string;
   taskId: string;
-  staffId?: string;
+  staffId?: string; // References StaffProfile, not User
   assignedDate: Date;
   dueDate: Date;
+  dueTime?: string; // HH:MM, local to the organization timezone
   outletId?: string;
   organizationId: string;
   status: 'pending' | 'completed' | 'overdue' | 'reschedule_requested';
   completedAt?: Date;
   completionProof?: string; // URL to photo/video
+  completionNotes?: string;
+  // The store phone is shared, so whoever completed the task picks their name
+  // from the roster. That is a different fact from who it was assigned to.
+  completedByStaffId?: string;
   minutesDeducted?: number;
   // Reschedule request fields
   rescheduleRequestedAt?: Date;
@@ -50,19 +70,8 @@ export interface TaskAssignment {
   updatedAt: Date;
   // Populated fields
   task?: Task;
-  staff?: User;
+  staff?: StaffProfile;
   outlet?: Outlet;
-}
-
-export interface StaffWorkingHours {
-  id: string;
-  staffId: string;
-  date: Date;
-  totalMinutes: number;
-  deductedMinutes: number;
-  netMinutes: number;
-  createdAt: Date;
-  updatedAt: Date;
 }
 
 export interface AuthContextType {
@@ -75,6 +84,13 @@ export interface AuthContextType {
   isOutletUser: boolean;
   // Organization data
   organization?: Organization | null;
+  // Signed in, but no profile row yet: a new owner who has not created their
+  // organization, or an invited branch that has not redeemed its invitation.
+  // Until this is resolved the access token carries no claims and row-level
+  // security denies everything, so the app must route to setup rather than
+  // render an empty dashboard.
+  needsSetup: boolean;
+  refreshIdentity: () => Promise<void>;
 }
 
 export interface TaskFormData {
@@ -112,30 +128,30 @@ export interface Outlet {
   phone?: string;
   email?: string;
   managerId?: string;
-  userId?: string; // Link to auth.users for outlet login
+  userId?: string; // The auth account this branch signs in with, if provisioned
   organizationId: string;
   isActive: boolean;
   createdAt: Date;
-  // Login credentials for outlet access
-  username?: string;
-  password?: string;
 }
 
+// A roster entry. Owns and completes tasks, but has no login and no auth
+// account: the name is stored here rather than reached through a users row.
 export interface StaffProfile {
   id: string;
-  userId: string;
+  name: string;
   positionId: string;
   employeeId: string;
   hireDate: Date;
+  outletId?: string; // The branch this person works at
   organizationId: string;
   isActive: boolean;
+  currentStreak: number;
+  longestStreak: number;
+  lastClearBoardDate?: Date;
   createdAt: Date;
-  // Login credentials for staff access
-  username?: string;
-  password?: string;
   // Populated fields
-  user?: User;
   position?: StaffPosition;
+  outlet?: Outlet;
 }
 
 export interface MonthlySchedule {
@@ -180,15 +196,12 @@ export interface TaskCompletionProof {
 // Form Data Types
 export interface StaffEnrollmentFormData {
   name: string;
-  email: string;
-  phone?: string;
   positionId: string;
   customPositionName?: string;
   customPositionDescription?: string;
   employeeId?: string;
   hireDate: Date;
-  username?: string;
-  password?: string;
+  outletId?: string;
 }
 
 export interface OutletFormData {
@@ -197,8 +210,6 @@ export interface OutletFormData {
   phone?: string;
   email?: string;
   managerId?: string;
-  username?: string;
-  password?: string;
 }
 
 export interface DailyScheduleFormData {
@@ -212,10 +223,13 @@ export interface DailyScheduleFormData {
 }
 
 // Invitation System Types
+//
+// Invitations only ever provision branch logins now. Staff are enrolled onto the
+// roster by the owner or the branch and never receive one.
 export interface Invitation {
   id: string;
   email: string;
-  role: 'staff' | 'outlet';
+  role: 'outlet';
   outletId?: string;
   organizationId: string;
   token: string;
@@ -229,9 +243,24 @@ export interface Invitation {
   createdByUser?: User;
 }
 
+// What an invitee can see before they have an account. The invitations table is
+// not readable pre-auth; this comes back from the get_invitation_by_token and
+// find_pending_invitation RPCs, which return only these fields.
+export interface PublicInvitation {
+  id: string;
+  email: string;
+  role: 'outlet';
+  outletId?: string;
+  organizationId: string;
+  token: string;
+  expiresAt: Date;
+  usedAt?: Date;
+  outletName?: string;
+}
+
 export interface InvitationFormData {
   email: string;
-  role: 'staff' | 'outlet';
+  role: 'outlet';
   outletId?: string;
 }
 
@@ -239,7 +268,6 @@ export interface SignupFormData {
   name: string;
   password: string;
   confirmPassword: string;
-  role: 'staff' | 'outlet';
   outletId?: string;
 }
 
@@ -248,6 +276,9 @@ export interface Organization {
   id: string;
   name: string;
   domain?: string;
+  // IANA zone. Defines when "today" ends for a restaurant whose day runs past
+  // midnight, and when the daily digest fires.
+  timezone: string;
   subscriptionTier: 'free' | 'standard' | 'professional';
   subscriptionStatus: 'active' | 'trial' | 'expired';
   maxAdmins: number;
@@ -257,25 +288,9 @@ export interface Organization {
   updatedAt: Date;
 }
 
-export interface TierLimits {
-  maxAdmins: number;
-  maxRestaurants: number;
-  maxEmployees: number;
-  currentAdmins: number;
-  currentRestaurants: number;
-  currentEmployees: number;
-  subscriptionTier: string;
-}
-
-export interface UsageStats {
-  adminsUsed: number;
-  adminsMax: number;
-  restaurantsUsed: number;
-  restaurantsMax: number;
-  employeesUsed: number;
-  employeesMax: number;
-  subscriptionTier: string;
-}
+// TierLimits and UsageStats live in services/tierLimitsService.ts, in the
+// snake_case shape the RPCs actually return. Camel-cased copies used to sit here
+// as well and matched nothing that came back from the database.
 
 export interface RestaurantSignupData {
   restaurantName: string;

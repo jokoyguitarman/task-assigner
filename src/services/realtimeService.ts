@@ -167,58 +167,30 @@ class RealtimeService {
     }
   }
 
-  public testRealtimeConnection() {
-    console.log('🧪 Testing real-time connection...');
-    console.log('🧪 Current user context:', {
-      userId: this.currentUserId,
-      role: this.currentUserRole,
-      organizationId: this.currentOrganizationId
-    });
-    console.log('🧪 Refresh callback set:', !!this.refreshCallback);
-    console.log('🧪 Subscriptions count:', this.subscriptions.size);
-    
-    // Test manual refresh
-    if (this.refreshCallback) {
-      console.log('🧪 Testing manual refresh...');
-      this.refreshCallback();
+  // Replaces whatever is registered under this key, closing the old channel
+  // first. Without this, navigating back to a dashboard opened a second
+  // websocket channel for the same table and never closed the first.
+  private register(key: string, channel: any) {
+    const existing = this.subscriptions.get(key);
+    if (existing) {
+      supabase.removeChannel(existing);
     }
+    this.subscriptions.set(key, channel);
   }
-
 
   private shouldNotifyUser(newRecord: any, oldRecord: any, eventType: string): boolean {
     if (!this.currentUserId || !this.currentUserRole) {
       return false;
     }
 
-    // For new assignments (INSERT)
-    if (eventType === 'INSERT') {
-      // Admin gets notified of all new assignments
+    // Only two kinds of principal receive notifications. Staff have no session
+    // to notify: they work from the branch's shared phone, so anything meant for
+    // them reaches the branch.
+    if (eventType === 'INSERT' || eventType === 'UPDATE') {
       if (this.currentUserRole === 'admin') {
         return true;
       }
-      // Assigned user gets notified
-      if (this.currentUserRole === 'staff' && (newRecord as any)?.staffId === this.currentUserId) {
-        return true;
-      }
-      if (this.currentUserRole === 'outlet' && (newRecord as any)?.outletId === this.currentOutletId) {
-        return true;
-      }
-      return false;
-    }
 
-    // For updates (UPDATE)
-    if (eventType === 'UPDATE') {
-      // Admin gets notified of all updates (completions, assignments, etc.)
-      if (this.currentUserRole === 'admin') {
-        return true;
-      }
-      
-      // Staff gets notified of their own task updates
-      if (this.currentUserRole === 'staff' && (newRecord as any)?.staffId === this.currentUserId) {
-        return true;
-      }
-      
-      // Outlet gets notified of their outlet's task updates
       if (this.currentUserRole === 'outlet' && (newRecord as any)?.outletId === this.currentOutletId) {
         return true;
       }
@@ -259,7 +231,7 @@ class RealtimeService {
       )
       .subscribe();
 
-    this.subscriptions.set('tasks', subscription);
+    this.register('tasks', subscription);
   }
 
   private subscribeToSchedules() {
@@ -270,7 +242,8 @@ class RealtimeService {
         {
           event: '*',
           schema: 'public',
-          table: 'schedules',
+          // There is no `schedules` table; this listened to nothing.
+          table: 'daily_schedules',
         },
         (payload) => {
           const notification = this.createRealtimeNotification(
@@ -284,16 +257,10 @@ class RealtimeService {
       )
       .subscribe();
 
-    this.subscriptions.set('schedules', subscription);
+    this.register('schedules', subscription);
   }
 
   public subscribeToDashboardMetrics() {
-    console.log('🔄 Setting up dashboard metrics subscription for user:', {
-      userId: this.currentUserId,
-      role: this.currentUserRole,
-      organizationId: this.currentOrganizationId
-    });
-    
     const subscription = supabase
       .channel('dashboard_metrics')
       .on(
@@ -303,22 +270,8 @@ class RealtimeService {
           schema: 'public',
           table: 'task_assignments',
         },
-        (payload) => {
-          console.log('🔔 Dashboard metrics - assignment change detected:', {
-            eventType: payload.eventType,
-            status: (payload.new as any)?.status,
-            staffId: (payload.new as any)?.staffId,
-            outletId: (payload.new as any)?.outletId,
-            currentUser: this.currentUserId,
-            currentRole: this.currentUserRole
-          });
-          console.log('🔔 Full payload:', payload);
-          if (this.refreshCallback) {
-            console.log('🔔 Triggering dashboard refresh for assignment change');
-            this.refreshCallback();
-          } else {
-            console.warn('🔔 No refresh callback set');
-          }
+        () => {
+          this.refreshCallback?.();
         }
       )
       .on(
@@ -328,43 +281,26 @@ class RealtimeService {
           schema: 'public',
           table: 'tasks',
         },
-        (payload) => {
-          if (this.refreshCallback) {
-            this.refreshCallback();
-          }
+        () => {
+          this.refreshCallback?.();
         }
       )
       .subscribe((status) => {
-        console.log('🔔 Dashboard metrics subscription status:', status);
-        if (status === 'SUBSCRIBED') {
-          console.log('✅ Dashboard metrics subscription active');
-        } else if (status === 'CHANNEL_ERROR') {
-          console.warn('❌ Dashboard metrics subscription failed');
+        if (status === 'CHANNEL_ERROR') {
+          console.warn('Dashboard metrics subscription failed');
         }
       });
 
-    // Add a test listener to see if we can receive any events
-    const testSubscription = supabase
-      .channel('test_connection')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'task_assignments',
-        },
-        (payload) => {
-          console.log('🧪 TEST: Task assignments change detected:', payload.eventType);
-        }
-      )
-      .subscribe((status) => {
-        console.log('🧪 TEST: Real-time test subscription status:', status);
-      });
+    this.register('dashboard_metrics', subscription);
 
-    this.subscriptions.set('dashboard_metrics', subscription);
     return () => {
-      console.log('🔄 Cleaning up dashboard metrics subscription');
-      this.subscriptions.delete('dashboard_metrics');
+      // Actually close the channel. Only removing the map entry left it
+      // subscribed for the rest of the session.
+      const current = this.subscriptions.get('dashboard_metrics');
+      if (current) {
+        supabase.removeChannel(current);
+        this.subscriptions.delete('dashboard_metrics');
+      }
     };
   }
 

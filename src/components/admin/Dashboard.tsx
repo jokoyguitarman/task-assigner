@@ -35,8 +35,15 @@ import {
   PriorityHigh,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { TaskAssignment, Task, User, StaffProfile, Outlet } from '../../types';
-import { assignmentsAPI, tasksAPI, usersAPI, staffProfilesAPI, outletsAPI } from '../../services/supabaseService';
+import { TaskAssignment, Task, StaffProfile, Outlet } from '../../types';
+import {
+  effectiveStatus,
+  isAssignmentOverdue,
+  isDueToday,
+  statusColor,
+  statusLabel,
+} from '../../lib/assignmentStatus';
+import { assignmentsAPI, tasksAPI, staffProfilesAPI, outletsAPI } from '../../services/supabaseService';
 import Leaderboard from './Leaderboard';
 import AssignmentForm from './AssignmentForm';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
@@ -46,7 +53,6 @@ const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
   const [assignments, setAssignments] = useState<TaskAssignment[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [staff, setStaff] = useState<User[]>([]);
   const [staffProfiles, setStaffProfiles] = useState<StaffProfile[]>([]);
   const [outlets, setOutlets] = useState<Outlet[]>([]);
   const [loading, setLoading] = useState(true);
@@ -55,154 +61,85 @@ const AdminDashboard: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [showAssignmentForm, setShowAssignmentForm] = useState(false);
 
-  useEffect(() => {
-    const initializeDashboard = async () => {
-      await loadData();
-      await updateOverdueAssignments();
-    };
-    initializeDashboard();
-  }, []);
+  // Writes the overdue flag back for anything whose deadline has passed. This
+  // only runs while an admin has the dashboard open, which is why the sweep
+  // belongs in a scheduled job — see the note in supabase/SCHEMA_NOTES.md.
+  const updateOverdueAssignments = useCallback(async () => {
+    const wentOverdue = assignments.filter(
+      a => a.status === 'pending' && isAssignmentOverdue(a)
+    );
+    if (wentOverdue.length === 0) return;
 
-  // Set up real-time dashboard metrics updates and notifications
-  useEffect(() => {
-    console.log('🔄 Admin Dashboard: Setting up real-time subscriptions...');
-    const unsubscribe = realtimeService.subscribeToDashboardMetrics();
-    
-    // Set up notification callback for admin
-    realtimeService.setNotificationCallback((notification: any) => {    
-      console.log('🔔 Admin received notification:', notification);
-    });
-    
-    // Set up refresh callback for dashboard updates
-    realtimeService.setRefreshCallback(() => {
-      console.log('🔄 Admin dashboard refresh callback triggered!');
-      console.log('🔄 Calling loadData...');
-      loadData();
-    });
-    
-    console.log('🔄 Admin Dashboard: Real-time subscriptions set up successfully');
-    
-    return () => {
-      console.log('🔄 Admin Dashboard: Cleaning up real-time subscriptions...');
-      if (unsubscribe) {
-        unsubscribe();
-      }
-    };
-  }, []);
-
-  // Test function for debugging
-  const testRealtime = () => {
-    console.log('🧪 Testing real-time connection...');
-    realtimeService.testRealtimeConnection();
-  };
-
-  // Periodic check for overdue assignments (every 5 minutes) - DISABLED: Using realtime instead
-  // useEffect(() => {
-  //   const interval = setInterval(() => {
-  //     updateOverdueAssignments();
-  //   }, 5 * 60 * 1000); // 5 minutes
-
-  //   return () => clearInterval(interval);
-  // }, []); // Remove assignments dependency to prevent infinite loop
-
-  const updateOverdueAssignments = async () => {
     try {
-      const today = new Date();
-      const overdueAssignments = assignments.filter(assignment => {
-        const dueDate = new Date(assignment.dueDate);
-        
-        // Set both dates to start of day for comparison (ignore time)
-        const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-        const dueDateStart = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
-        
-        const isOverdue = assignment.status === 'pending' && todayStart > dueDateStart;
-        
-        // Debug logging for overdue updates
-        if (assignment.taskId && (assignment.taskId.includes('Inventory') || assignment.taskId.includes('Clean'))) {
-          console.log('🔄 Update Overdue Debug for task:', assignment.taskId, {
-            originalDueDate: assignment.dueDate,
-            parsedDueDate: dueDate,
-            dueDateStart: dueDateStart,
-            today: today,
-            todayStart: todayStart,
-            isOverdue: isOverdue,
-            status: assignment.status
-          });
-        }
-        
-        return isOverdue;
-      });
-
-      // Update overdue assignments in the database
-      for (const assignment of overdueAssignments) {
-        console.log('📝 Updating assignment to overdue:', assignment.id, assignment.taskId);
-        await assignmentsAPI.update(assignment.id, { status: 'overdue' });
-      }
-
-      if (overdueAssignments.length > 0) {
-        console.log(`Updated ${overdueAssignments.length} assignments to overdue status`);
-        // The auto-refresh will handle reloading the data
-      }
+      await Promise.all(
+        wentOverdue.map(a => assignmentsAPI.update(a.id, { status: 'overdue' }))
+      );
     } catch (error) {
       console.error('Error updating overdue assignments:', error);
     }
-  };
+  }, [assignments]);
 
   const loadData = useCallback(async () => {
     try {
-      console.log('🔄 Admin Dashboard loadData starting...');
       setLoading(true);
-      
-      
-      const [assignmentsData, tasksData, staffData, staffProfilesData, outletsData] = await Promise.all([
+
+      // No longer fetches every user: staff names live on the roster now, so
+      // the extra round trip that existed only to resolve them is gone.
+      const [assignmentsData, tasksData, staffProfilesData, outletsData] = await Promise.all([
         assignmentsAPI.getAll(),
         tasksAPI.getAll(),
-        usersAPI.getAll(),
         staffProfilesAPI.getAll(),
         outletsAPI.getAll(),
       ]);
-      
-              console.log('✅ Admin Dashboard data loaded:', {
-          assignmentsCount: assignmentsData.length,
-          tasksCount: tasksData.length,
-          staffCount: staffData.length,
-          staffProfilesCount: staffProfilesData.length,
-          outletsCount: outletsData.length
-        });
-        
-      
+
       setAssignments(assignmentsData);
       setTasks(tasksData);
-      setStaff(staffData);
       setStaffProfiles(staffProfilesData);
       setOutlets(outletsData);
     } catch (error) {
-      console.error('❌ Error loading dashboard data:', error);
+      console.error('Error loading dashboard data:', error);
     } finally {
       setLoading(false);
     }
   }, []);
 
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Runs after the data lands. It used to be awaited straight after loadData on
+  // mount, where `assignments` was still the empty initial state, so it never
+  // marked anything overdue.
+  useEffect(() => {
+    updateOverdueAssignments();
+  }, [updateOverdueAssignments]);
+
+  useEffect(() => {
+    const unsubscribe = realtimeService.subscribeToDashboardMetrics();
+    realtimeService.setRefreshCallback(loadData);
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [loadData]);
+
   // Auto-refresh when data changes
   useAutoRefresh({ refreshFunction: loadData });
 
-  const getStatusColor = (assignment: TaskAssignment) => {
-    if (assignment.status === 'completed') return 'success';
-    if (assignment.status === 'overdue' || isAssignmentOverdue(assignment)) return 'error';
-    return 'warning';
-  };
+  const getStatusColor = (assignment: TaskAssignment) => statusColor(effectiveStatus(assignment));
 
   const getStatusIcon = (assignment: TaskAssignment) => {
-    if (assignment.status === 'completed') return <CheckCircle />;
-    if (assignment.status === 'overdue' || isAssignmentOverdue(assignment)) return <Warning />;
-    return <Schedule />;
+    switch (effectiveStatus(assignment)) {
+      case 'completed':
+        return <CheckCircle />;
+      case 'overdue':
+        return <Warning />;
+      default:
+        return <Schedule />;
+    }
   };
 
-  const getDisplayStatus = (assignment: TaskAssignment) => {
-    if (assignment.status === 'completed') return 'completed';
-    if (assignment.status === 'overdue' || isAssignmentOverdue(assignment)) return 'overdue';
-    return 'pending';
-  };
+  const getDisplayStatus = (assignment: TaskAssignment) => statusLabel(effectiveStatus(assignment));
 
   const getTaskTitle = (taskId: string) => {
     const task = tasks.find(t => t.id === taskId);
@@ -221,16 +158,14 @@ const AdminDashboard: React.FC = () => {
 
   const getStaffName = (staffId?: string) => {
     if (!staffId) return 'Unassigned';
-    const staffProfile = staffProfiles.find(sp => sp.id === staffId);
-    const user = staffProfile ? staff.find(u => u.id === staffProfile.userId) : null;
-    return user?.name || staffProfile?.user?.name || 'Unknown Staff';
+    return staffProfiles.find(sp => sp.id === staffId)?.name || 'Unknown Staff';
   };
 
-  const getStaffEmail = (staffId?: string) => {
+  // Roster members have no email, because they have no account. The employee ID
+  // is the identifier that actually distinguishes two people with the same name.
+  const getStaffEmployeeId = (staffId?: string) => {
     if (!staffId) return 'Available for self-assignment';
-    const staffProfile = staffProfiles.find(sp => sp.id === staffId);
-    const user = staffProfile ? staff.find(u => u.id === staffProfile.userId) : null;
-    return user?.email || staffProfile?.user?.email || '';
+    return staffProfiles.find(sp => sp.id === staffId)?.employeeId || '';
   };
 
   const getOutletName = (outletId?: string) => {
@@ -257,33 +192,8 @@ const AdminDashboard: React.FC = () => {
     setStatusFilter(null);
   };
 
-  // Helper function to check if an assignment is overdue
-  const isAssignmentOverdue = (assignment: TaskAssignment) => {
-    const today = new Date();
-    const dueDate = new Date(assignment.dueDate);
-    
-    // Set both dates to start of day for comparison (ignore time)
-    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const dueDateStart = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
-    
-    // Debug logging for overdue detection
-    if (assignment.taskId && assignment.taskId.includes('Inventory') || assignment.taskId.includes('Clean')) {
-      console.log('🔍 Overdue Debug for task:', assignment.taskId, {
-        originalDueDate: assignment.dueDate,
-        parsedDueDate: dueDate,
-        dueDateStart: dueDateStart,
-        today: today,
-        todayStart: todayStart,
-        isOverdue: todayStart > dueDateStart,
-        status: assignment.status
-      });
-    }
-    
-    return assignment.status === 'pending' && todayStart > dueDateStart;
-  };
-
-  const pendingAssignments = assignments.filter(a => a.status === 'pending' && !isAssignmentOverdue(a));
-  const overdueAssignments = assignments.filter(a => a.status === 'overdue' || isAssignmentOverdue(a));
+  const pendingAssignments = assignments.filter(a => effectiveStatus(a) === 'pending');
+  const overdueAssignments = assignments.filter(a => effectiveStatus(a) === 'overdue');
   const completedToday = assignments.filter(a => 
     a.status === 'completed' && 
     a.completedAt && 
@@ -291,49 +201,12 @@ const AdminDashboard: React.FC = () => {
   );
 
   // Today's due tasks (tasks due today + overdue tasks from previous dates)
-  const todayDueTasks = assignments.filter(a => {
-    const today = new Date();
-    const dueDate = new Date(a.dueDate);
-    const isDueToday = dueDate.toDateString() === today.toDateString();
-    const isOverdue = a.status === 'overdue' || isAssignmentOverdue(a);
-    return isDueToday || isOverdue;
-  });
-
-  // Active assignments (pending + rescheduled tasks that need to be completed)
-  const activeAssignments = assignments.filter(a => 
-    a.status === 'pending' || a.status === 'reschedule_requested'
-  );
+  const todayDueTasks = assignments.filter(a => isDueToday(a) || isAssignmentOverdue(a));
 
   // Priority tasks due today or overdue
-  const priorityTasksToday = assignments.filter(a => {
-    const task = tasks.find(t => t.id === a.taskId);
-    if (!task?.isHighPriority) return false;
-    
-    const today = new Date();
-    const dueDate = new Date(a.dueDate);
-    const isDueToday = dueDate.toDateString() === today.toDateString();
-    const isOverdue = a.status === 'overdue' || isAssignmentOverdue(a);
-    return isDueToday || isOverdue;
-  });
-
-  // Debug logging
-  console.log('Dashboard Debug:', {
-    totalAssignments: assignments.length,
-    todayDueTasks: todayDueTasks.length,
-    activeAssignments: activeAssignments.length,
-    completedToday: completedToday.length,
-    totalTasks: tasks.length,
-    todayDueTasksCount: todayDueTasks.length,
-    priorityTasks: priorityTasksToday.length,
-    tasksWithPriority: tasks.filter(t => t.isHighPriority).length,
-    assignmentsWithPriorityTasks: assignments.filter(a => {
-      const task = tasks.find(t => t.id === a.taskId);
-      return task?.isHighPriority;
-    }).length,
-    overdueAssignments: overdueAssignments.length,
-    pendingAssignments: pendingAssignments.length,
-    overdueByDate: assignments.filter(a => isAssignmentOverdue(a)).length
-  });
+  const priorityTasksToday = todayDueTasks.filter(
+    a => tasks.find(t => t.id === a.taskId)?.isHighPriority
+  );
 
   // Filtered assignments based on status filter
   const filteredAssignments = statusFilter 
@@ -342,10 +215,8 @@ const AdminDashboard: React.FC = () => {
           const task = tasks.find(t => t.id === a.taskId);
           return task?.isHighPriority;
         })
-      : statusFilter === 'overdue'
-      ? assignments.filter(a => a.status === 'overdue' || isAssignmentOverdue(a))
-      : statusFilter === 'pending'
-      ? assignments.filter(a => a.status === 'pending' && !isAssignmentOverdue(a))
+      : statusFilter === 'overdue' || statusFilter === 'pending'
+      ? assignments.filter(a => effectiveStatus(a) === statusFilter)
       : assignments.filter(a => a.status === statusFilter)
     : assignments;
 
@@ -376,16 +247,6 @@ const AdminDashboard: React.FC = () => {
               <Typography variant="body1" color="text.secondary">
                 Welcome back! Here's what's happening with your tasks today.
               </Typography>
-               
-              {/* Test Button */}
-              <Button 
-                variant="outlined" 
-                onClick={testRealtime}
-                size="small"
-                sx={{ mt: 2 }}
-              >
-                🧪 Test Real-time
-              </Button>
             </Box>
           </Box>
         </Box>
@@ -937,7 +798,7 @@ const AdminDashboard: React.FC = () => {
                     {getStaffName(selectedAssignmentForDetails.staffId)}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    {getStaffEmail(selectedAssignmentForDetails.staffId)}
+                    {getStaffEmployeeId(selectedAssignmentForDetails.staffId)}
                   </Typography>
                 </Box>
               </Box>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Card,
   CardContent,
@@ -25,11 +25,10 @@ import {
   EmojiEvents as TrophyIcon,
   Assessment as AssessmentIcon,
 } from '@mui/icons-material';
-import { TaskAssignment, User, StaffProfile, Outlet } from '../../types';
-import { assignmentsAPI, usersAPI, staffProfilesAPI, outletsAPI } from '../../services/supabaseService';
+import { TaskAssignment, StaffProfile, Outlet } from '../../types';
+import { assignmentsAPI, staffProfilesAPI, outletsAPI } from '../../services/supabaseService';
 
 interface StaffWithOutlet extends StaffProfile {
-  user: User;
   primaryOutletId: string;
 }
 
@@ -44,37 +43,23 @@ interface LeaderboardStats {
 }
 
 const Leaderboard: React.FC = () => {
-  const [leaderboardData, setLeaderboardData] = useState<LeaderboardStats[]>([]);
   const [assignments, setAssignments] = useState<TaskAssignment[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
   const [staffProfiles, setStaffProfiles] = useState<StaffProfile[]>([]);
   const [outlets, setOutlets] = useState<Outlet[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  useEffect(() => {
-    if (assignments.length > 0) {
-      generateLeaderboard();
-    }
-  }, [assignments, selectedMonth, selectedYear]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [assignmentsData, usersData, staffProfilesData, outletsData] = await Promise.all([
+      const [assignmentsData, staffProfilesData, outletsData] = await Promise.all([
         assignmentsAPI.getAll(),
-        usersAPI.getAll(),
         staffProfilesAPI.getAll(),
         outletsAPI.getAll(),
       ]);
       
       setAssignments(assignmentsData);
-      setUsers(usersData);
       setStaffProfiles(staffProfilesData);
       setOutlets(outletsData);
     } catch (error) {
@@ -82,18 +67,20 @@ const Leaderboard: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const generateLeaderboard = () => {
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Derived from the data and the chosen month, so it is computed rather than
+  // stored. As state kept in sync by an effect, it stayed stale for a render
+  // after either changed.
+  const leaderboardData: LeaderboardStats[] = useMemo(() => {
     const startDate = new Date(selectedYear, selectedMonth, 1);
-    const endDate = new Date(selectedYear, selectedMonth + 1, 0);
+    const endDate = new Date(selectedYear, selectedMonth + 1, 0, 23, 59, 59, 999);
 
-    const allStaff = staffProfiles.map(staff => {
-      const user = users.find(u => u.id === staff.userId);
-      return { ...staff, user: user! };
-    });
-
-    const stats = allStaff.map(staff => {
+    const stats = staffProfiles.map(staff => {
       const allAssignedTasks = assignments.filter(a => {
         const assignmentDate = new Date(a.assignedDate);
         return a.staffId === staff.id && 
@@ -119,8 +106,10 @@ const Leaderboard: React.FC = () => {
         return acc;
       }, {} as Record<string, number>);
       
-      const primaryOutletId = Object.keys(outletCounts).reduce((a, b) => 
-        outletCounts[a] > outletCounts[b] ? a : b, Object.keys(outletCounts)[0] || '');
+      const primaryOutletId = Object.keys(outletCounts).reduce(
+        (a, b) => (outletCounts[a] > outletCounts[b] ? a : b),
+        Object.keys(outletCounts)[0] || staff.outletId || ''
+      );
 
       return {
         staff: { ...staff, primaryOutletId },
@@ -134,7 +123,7 @@ const Leaderboard: React.FC = () => {
     });
 
     // Sort by completion rate, then by completed count
-    const sortedStats = stats
+    return stats
       .filter(stat => stat.assignedCount > 0) // Only show staff with assigned tasks
       .sort((a, b) => {
         if (b.completionRate !== a.completionRate) {
@@ -142,9 +131,7 @@ const Leaderboard: React.FC = () => {
         }
         return b.completedCount - a.completedCount;
       });
-
-    setLeaderboardData(sortedStats);
-  };
+  }, [assignments, staffProfiles, selectedMonth, selectedYear]);
 
   const getOutletName = (outletId: string) => {
     const outlet = outlets.find(o => o.id === outletId);
@@ -328,11 +315,11 @@ const Leaderboard: React.FC = () => {
                               fontWeight: 'bold',
                             }}
                           >
-                            {stat.staff.user?.name?.charAt(0) || 'U'}
+                            {stat.staff.name?.charAt(0) || 'U'}
                           </Avatar>
                           <Box>
                             <Typography variant="subtitle2" fontWeight={600}>
-                              {stat.staff.user?.name || 'Unknown User'}
+                              {stat.staff.name || 'Unknown User'}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
                               {getOutletName(stat.staff.primaryOutletId)}

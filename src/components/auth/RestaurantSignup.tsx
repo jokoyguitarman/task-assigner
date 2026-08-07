@@ -12,9 +12,10 @@ import {
   Container,
   Paper,
 } from '@mui/material';
-import { Restaurant, Business, Person, Email, Lock } from '@mui/icons-material';
-import { authAPI } from '../../services/supabaseService';
+import { Restaurant, Business, Person } from '@mui/icons-material';
+import { authAPI, organizationsAPI, outletsAPI } from '../../services/supabaseService';
 import { supabase } from '../../lib/supabase';
+import { PENDING_SETUP_KEY } from './AccountSetup';
 
 interface RestaurantSignupData {
   restaurantName: string;
@@ -89,75 +90,47 @@ const RestaurantSignup: React.FC = () => {
     setError(null);
 
     try {
-      // Create organization first
-      const { data: organization, error: orgError } = await supabase
-        .from('organizations')
-        .insert({
-          name: formData.restaurantName,
-          subscription_tier: 'free',
-          subscription_status: 'active',
-          max_admins: 1,
-          max_restaurants: 1,
-          max_employees: 10,
-        })
-        .select()
-        .single();
+      // Create the auth account only. The organization, the admin profile and
+      // the tier limits are all created server-side by bootstrap_organization,
+      // so a signup cannot grant itself a higher tier or a role it did not earn.
+      await authAPI.signup(formData.adminEmail, formData.adminPassword, formData.adminName);
 
-      if (orgError) {
-        throw new Error(`Failed to create organization: ${orgError.message}`);
+      // Whether a session exists now depends on whether email confirmation is
+      // required. Stash the restaurant details either way, so the setup screen
+      // can prefill them once the owner is actually signed in.
+      sessionStorage.setItem(
+        PENDING_SETUP_KEY,
+        JSON.stringify({
+          restaurantName: formData.restaurantName,
+          restaurantAddress: formData.restaurantAddress,
+          restaurantPhone: formData.restaurantPhone,
+          adminName: formData.adminName,
+        })
+      );
+
+      const { data } = await supabase.auth.getSession();
+
+      if (!data.session) {
+        // Email confirmation is on. Finish after they confirm and sign in.
+        setSuccess(true);
+        return;
       }
 
-      // Create admin user account
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: formData.adminEmail,
-        password: formData.adminPassword,
-        options: {
-          data: {
-            name: formData.adminName,
-            organization_id: organization.id,
-          },
-        },
+      await organizationsAPI.bootstrap(formData.restaurantName, formData.adminName);
+
+      // The token was issued before the profile existed, so it carries no
+      // claims yet and every write would be denied. Reissue it first.
+      await supabase.auth.refreshSession();
+
+      await outletsAPI.create({
+        name: formData.restaurantName,
+        address: formData.restaurantAddress || undefined,
+        phone: formData.restaurantPhone || undefined,
+        organizationId: '',
+        isActive: true,
       });
 
-      if (authError) {
-        throw new Error(`Failed to create admin account: ${authError.message}`);
-      }
-
-      if (!authData.user) {
-        throw new Error('Failed to create admin account');
-      }
-
-      // Create user profile in public.users table
-      const { error: userError } = await supabase
-        .from('users')
-        .insert({
-          id: authData.user.id,
-          email: formData.adminEmail,
-          name: formData.adminName,
-          role: 'admin',
-          organization_id: organization.id,
-          is_primary_admin: true,
-        });
-
-      if (userError) {
-        throw new Error(`Failed to create user profile: ${userError.message}`);
-      }
-
-      // Create first restaurant outlet
-      const { error: outletError } = await supabase
-        .from('outlets')
-        .insert({
-          name: formData.restaurantName,
-          address: formData.restaurantAddress,
-          phone: formData.restaurantPhone,
-          organization_id: organization.id,
-          is_active: true,
-        });
-
-      if (outletError) {
-        throw new Error(`Failed to create restaurant outlet: ${outletError.message}`);
-      }
-
+      sessionStorage.removeItem(PENDING_SETUP_KEY);
       setSuccess(true);
     } catch (err) {
       console.error('Restaurant signup error:', err);

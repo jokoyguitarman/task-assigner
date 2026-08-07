@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   IconButton,
   Badge,
@@ -12,7 +12,6 @@ import {
   Divider,
   Chip,
   Button,
-  Paper,
 } from '@mui/material';
 import {
   Notifications as NotificationsIcon,
@@ -40,60 +39,61 @@ const NotificationBell: React.FC = () => {
   const { user } = useAuth();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [loading, setLoading] = useState(false);
 
   const open = Boolean(anchorEl);
 
+  // Branch devices are shared and get handed between accounts, so notifications
+  // are kept per account rather than under one global key everyone reads.
+  const storageKey = user ? `notifications:${user.id}` : null;
+
+  const persist = useCallback(
+    (items: Notification[]) => {
+      if (storageKey) localStorage.setItem(storageKey, JSON.stringify(items));
+    },
+    [storageKey]
+  );
+
   useEffect(() => {
-    loadNotifications();
-    
-    // Set up real-time notifications
-    realtimeService.setNotificationCallback(handleRealtimeNotification);
-    
-    return () => {
-      // Cleanup is handled by the realtime service itself
-    };
-  }, []);
+    if (!storageKey) {
+      setNotifications([]);
+      return;
+    }
 
-  const handleRealtimeNotification = (realtimeNotification: RealtimeNotification) => {
-    console.log('🔔 NotificationBell received real-time notification:', realtimeNotification);
-    const notification: Notification = {
-      id: realtimeNotification.id,
-      type: realtimeNotification.type,
-      title: realtimeNotification.title,
-      message: realtimeNotification.message,
-      timestamp: realtimeNotification.timestamp,
-      read: false,
-      taskId: realtimeNotification.data?.taskId,
-      assignmentId: realtimeNotification.data?.id,
-    };
-    
-    setNotifications(prev => {
-      const updated = [notification, ...prev];
-      localStorage.setItem('notifications', JSON.stringify(updated));
-      return updated;
-    });
-  };
-
-
-  const loadNotifications = async () => {
     try {
-      setLoading(true);
-      // Load recent notifications from localStorage or API
-      const savedNotifications = localStorage.getItem('notifications');
-      if (savedNotifications) {
-        const parsed = JSON.parse(savedNotifications);
-        setNotifications(parsed.map((n: any) => ({
-          ...n,
-          timestamp: new Date(n.timestamp)
-        })));
-      }
+      const saved = localStorage.getItem(storageKey);
+      setNotifications(
+        saved
+          ? JSON.parse(saved).map((n: any) => ({ ...n, timestamp: new Date(n.timestamp) }))
+          : []
+      );
     } catch (error) {
       console.error('Failed to load notifications:', error);
-    } finally {
-      setLoading(false);
+      setNotifications([]);
     }
-  };
+  }, [storageKey]);
+
+  useEffect(() => {
+    const handleRealtimeNotification = (realtimeNotification: RealtimeNotification) => {
+      const notification: Notification = {
+        id: realtimeNotification.id,
+        type: realtimeNotification.type,
+        title: realtimeNotification.title,
+        message: realtimeNotification.message,
+        timestamp: realtimeNotification.timestamp,
+        read: false,
+        taskId: realtimeNotification.data?.taskId,
+        assignmentId: realtimeNotification.data?.id,
+      };
+
+      setNotifications(prev => {
+        const updated = [notification, ...prev];
+        persist(updated);
+        return updated;
+      });
+    };
+
+    realtimeService.setNotificationCallback(handleRealtimeNotification);
+  }, [persist]);
 
   const handleClick = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
@@ -108,7 +108,7 @@ const NotificationBell: React.FC = () => {
       const updated = prev.map(notif => 
         notif.id === notificationId ? { ...notif, read: true } : notif
       );
-      localStorage.setItem('notifications', JSON.stringify(updated));
+      persist(updated);
       return updated;
     });
   };
@@ -116,7 +116,7 @@ const NotificationBell: React.FC = () => {
   const markAllAsRead = () => {
     setNotifications(prev => {
       const updated = prev.map(notif => ({ ...notif, read: true }));
-      localStorage.setItem('notifications', JSON.stringify(updated));
+      persist(updated);
       return updated;
     });
   };

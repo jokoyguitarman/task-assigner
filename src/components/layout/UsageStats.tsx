@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Card,
@@ -27,52 +27,34 @@ import {
   TrendingUp,
   Upgrade,
 } from '@mui/icons-material';
-import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
-
-interface UsageStats {
-  admins_used: number;
-  admins_max: number;
-  restaurants_used: number;
-  restaurants_max: number;
-  employees_used: number;
-  employees_max: number;
-  subscription_tier: string;
-}
+import { tierLimitsService, UsageStats as UsageStatsData } from '../../services/tierLimitsService';
 
 const UsageStats: React.FC = () => {
   const { user } = useAuth();
-  const [usageStats, setUsageStats] = useState<UsageStats | null>(null);
+  const [usageStats, setUsageStats] = useState<UsageStatsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false);
 
-  useEffect(() => {
-    if (user?.organizationId) {
-      loadUsageStats();
+  const organizationId = user?.organizationId;
+
+  const loadUsageStats = useCallback(async () => {
+    if (!organizationId) {
+      setLoading(false);
+      return;
     }
-  }, [user?.organizationId]);
 
-  const loadUsageStats = async () => {
-    if (!user?.organizationId) return;
-
+    setLoading(true);
     try {
-      const { data, error } = await supabase
-        .rpc('get_organization_usage_stats', { org_id: user.organizationId });
-
-      if (error) {
-        console.error('Error loading usage stats:', error);
-        return;
-      }
-
-      if (data && data.length > 0) {
-        setUsageStats(data[0]);
-      }
-    } catch (error) {
-      console.error('Error loading usage stats:', error);
+      setUsageStats(await tierLimitsService.getUsageStats(organizationId));
     } finally {
       setLoading(false);
     }
-  };
+  }, [organizationId]);
+
+  useEffect(() => {
+    loadUsageStats();
+  }, [loadUsageStats]);
 
   const getTierColor = (tier: string) => {
     switch (tier) {
@@ -93,6 +75,7 @@ const UsageStats: React.FC = () => {
   };
 
   const getUsagePercentage = (used: number, max: number) => {
+    if (!max) return used > 0 ? 100 : 0;
     return Math.min((used / max) * 100, 100);
   };
 

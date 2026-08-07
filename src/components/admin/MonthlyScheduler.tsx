@@ -52,6 +52,7 @@ import {
   outletsAPI 
 } from '../../services/supabaseService';
 import { useAuth } from '../../contexts/AuthContext';
+import { toDateOnly } from '../../lib/dates';
 import { 
   MonthlySchedule, 
   StaffProfile, 
@@ -103,40 +104,6 @@ const MonthlyScheduler: React.FC = () => {
     }
   }, [viewMode]);
   
-  // Also persist on page unload as a backup
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      try {
-        localStorage.setItem('scheduler-view-preference', viewMode);
-      } catch (error) {
-        console.warn('Failed to save preference on unload:', error);
-      }
-    };
-    
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [viewMode]);
-
-  // Force re-check localStorage on component mount (handles refresh case)
-  useEffect(() => {
-    const recheckPreference = () => {
-      try {
-        const saved = localStorage.getItem('scheduler-view-preference');
-        if (saved && saved !== viewMode) {
-          setViewMode(saved as 'weekly' | 'monthly');
-        }
-      } catch (error) {
-        console.warn('Failed to re-check localStorage preference:', error);
-      }
-    };
-
-    // Check immediately and after a short delay to handle timing issues
-    recheckPreference();
-    const timeoutId = setTimeout(recheckPreference, 100);
-    
-    return () => clearTimeout(timeoutId);
-  }, []); // Only run on mount
-
   // Get the start of the current week (Sunday)
   const getStartOfWeek = (date: Date) => {
     const start = new Date(date);
@@ -483,14 +450,14 @@ const MonthlyScheduler: React.FC = () => {
         staffSchedules: staffProfiles.map(staff => {
           const monthlySchedule = monthlySchedules.find(s => s.staffId === staff.id);
           const position = staff.position?.name || 'Unknown Position';
-          const outlet = 'Main Outlet'; // TODO: Add outlet assignment to StaffProfile
-          
+          const outlet = staff.outlet?.name || 'Unassigned';
+
           return {
-            staffName: staff.user?.name || 'Unknown Staff',
+            staffName: staff.name || 'Unknown Staff',
             position,
             outlet,
             dailySchedules: monthlySchedule?.dailySchedules?.map(ds => ({
-              date: ds.scheduleDate.toISOString().split('T')[0],
+              date: toDateOnly(ds.scheduleDate),
               timeIn: ds.timeIn,
               timeOut: ds.timeOut,
               isDayOff: ds.isDayOff,
@@ -837,73 +804,6 @@ const MonthlyScheduler: React.FC = () => {
     }
   };
 
-  const shiftDayOffsForward = async () => {
-    try {
-      setError(null);
-      const previousWeek = new Date(currentWeekStart);
-      previousWeek.setDate(previousWeek.getDate() - 7);
-      
-      const previousWeekDays = getWeekDays(previousWeek);
-      const currentWeekDays = getWeekDays(currentWeekStart);
-      let shiftedCount = 0;
-      
-      for (const staff of staffProfiles) {
-        // Find day-offs from previous week
-        const previousDayOffs = [];
-        for (const previousDate of previousWeekDays) {
-          const previousSchedule = getStaffScheduleForDate(staff.id, previousDate);
-          if (previousSchedule?.isDayOff) {
-            const dayIndex = previousWeekDays.indexOf(previousDate);
-            previousDayOffs.push({ dayIndex, schedule: previousSchedule });
-          }
-        }
-        
-        // Shift each day-off forward by one day
-        for (const dayOff of previousDayOffs) {
-          const newDayIndex = (dayOff.dayIndex + 1) % 7; // Wrap around week
-          const newDate = currentWeekDays[newDayIndex];
-          
-          // Check if schedule already exists
-          const existingSchedule = getStaffScheduleForDate(staff.id, newDate);
-          if (!existingSchedule) {
-            // Find or create monthly schedule
-            let monthlySchedule = monthlySchedules.find(s => s.staffId === staff.id);
-            if (!monthlySchedule) {
-              monthlySchedule = await monthlySchedulesAPI.create({
-                staffId: staff.id,
-                month: newDate.getMonth() + 1,
-                year: newDate.getFullYear(),
-                organizationId: user!.organizationId,
-                createdBy: user!.id,
-              });
-            }
-            
-            // Create the shifted day-off
-            const scheduleData: any = {
-              monthlyScheduleId: monthlySchedule.id,
-              scheduleDate: newDate,
-              isDayOff: true,
-              notes: `Shifted from ${previousWeekDays[dayOff.dayIndex].toLocaleDateString()}`,
-            };
-            
-            if (dayOff.schedule.dayOffType) {
-              scheduleData.dayOffType = dayOff.schedule.dayOffType;
-            }
-            
-            await dailySchedulesAPI.create(scheduleData);
-            shiftedCount++;
-          }
-        }
-      }
-      
-      await loadData();
-      setSuccess(`Shifted ${shiftedCount} day-offs forward by one day`);
-    } catch (err) {
-      console.error('Error shifting day-offs:', err);
-      setError('Failed to shift day-offs forward');
-    }
-  };
-
   const resetScheduleForDay = async (staffId: string, date: Date) => {
     try {
       setError(null);
@@ -1184,7 +1084,7 @@ const MonthlyScheduler: React.FC = () => {
                             <TableCell>
                               <Box>
                                 <Typography variant="subtitle2" fontWeight="bold">
-                                  {staff.user?.name}
+                                  {staff.name}
                                 </Typography>
                                 <Typography variant="caption" color="text.secondary">
                                   {staff.position?.name}
@@ -1208,7 +1108,7 @@ const MonthlyScheduler: React.FC = () => {
                                       onContextMenu={(e) => {
                                         e.preventDefault();
                                         if (schedule) {
-                                          if (window.confirm(`Clear schedule for ${staff.user?.name} on ${date.toLocaleDateString()}?`)) {
+                                          if (window.confirm(`Clear schedule for ${staff.name} on ${date.toLocaleDateString()}?`)) {
                                             resetScheduleForDay(staff.id, date);
                                           }
                                         }
@@ -1301,7 +1201,7 @@ const MonthlyScheduler: React.FC = () => {
                                   {weekIndex === 0 && (
                                     <Box>
                                       <Typography variant="subtitle2" fontWeight="bold">
-                                        {staff.user?.name}
+                                        {staff.name}
                                       </Typography>
                                       <Typography variant="caption" color="text.secondary">
                                         {staff.position?.name}
@@ -1333,7 +1233,7 @@ const MonthlyScheduler: React.FC = () => {
                                               onContextMenu={(e) => {
                                                 e.preventDefault();
                                                 if (schedule) {
-                                                  if (window.confirm(`Clear schedule for ${staff.user?.name} on ${date.toLocaleDateString()}?`)) {
+                                                  if (window.confirm(`Clear schedule for ${staff.name} on ${date.toLocaleDateString()}?`)) {
                                                     resetScheduleForDay(staff.id, date);
                                                   }
                                                 }
@@ -1385,7 +1285,7 @@ const MonthlyScheduler: React.FC = () => {
         {/* Schedule Entry Dialog */}
         <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
           <DialogTitle>
-            {getStaffScheduleForDate(selectedStaff?.id || '', selectedDate || new Date()) ? 'Edit' : 'Create'} Schedule - {selectedStaff?.user?.name}
+            {getStaffScheduleForDate(selectedStaff?.id || '', selectedDate || new Date()) ? 'Edit' : 'Create'} Schedule - {selectedStaff?.name}
           </DialogTitle>
           <DialogContent>
             <Grid container spacing={2} sx={{ mt: 1 }}>

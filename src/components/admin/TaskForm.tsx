@@ -18,7 +18,7 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { useForm, Controller } from 'react-hook-form';
-import { TaskFormData, Task } from '../../types';
+import { TaskFormData } from '../../types';
 import { tasksAPI } from '../../services/supabaseService';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -31,7 +31,6 @@ interface TaskFormProps {
 const TaskForm: React.FC<TaskFormProps> = ({ taskId, onSuccess, onCancel }) => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [taskData, setTaskData] = useState<Task | null>(null);
   const [formLoading, setFormLoading] = useState(false);
   
   const { control, handleSubmit, watch, reset, formState: { errors } } = useForm<TaskFormData>({
@@ -54,7 +53,6 @@ const TaskForm: React.FC<TaskFormProps> = ({ taskId, onSuccess, onCancel }) => {
         setFormLoading(true);
         try {
           const task = await tasksAPI.getById(taskId);
-          setTaskData(task);
           reset({
             title: task.title,
             description: task.description,

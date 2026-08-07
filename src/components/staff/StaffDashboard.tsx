@@ -45,7 +45,8 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { TaskAssignment, Task, StaffProfile, User, Outlet } from '../../types';
-import { assignmentsAPI, tasksAPI, staffProfilesAPI, usersAPI, outletsAPI, streakAPI, monthlySchedulesAPI } from '../../services/supabaseService';
+import { effectiveStatus } from '../../lib/assignmentStatus';
+import { assignmentsAPI, tasksAPI, staffProfilesAPI, usersAPI, outletsAPI, monthlySchedulesAPI } from '../../services/supabaseService';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { realtimeService } from '../../services/realtimeService';
 import ToastNotification from '../common/ToastNotification';
@@ -58,7 +59,7 @@ const StaffDashboard: React.FC = () => {
   const [unassignedTasks, setUnassignedTasks] = useState<TaskAssignment[]>([]);
   const [staffProfile, setStaffProfile] = useState<StaffProfile | null>(null);
   const [allStaffProfiles, setAllStaffProfiles] = useState<StaffProfile[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
+  const [taskCreators, setTaskCreators] = useState<User[]>([]);
   const [outlets, setOutlets] = useState<Outlet[]>([]);
   const [loading, setLoading] = useState(true);
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
@@ -77,234 +78,87 @@ const StaffDashboard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [toastNotification, setToastNotification] = useState<any>(null);
-  const [retryCount, setRetryCount] = useState(0);
 
-  useEffect(() => {
-    console.log('🚀 StaffDashboard useEffect triggered');
-    console.log('🔍 Current state:', { 
-      user: !!user, 
-      userEmail: user?.email,
-      userId: user?.id,
-      userRole: user?.role,
-      isOutletUser, 
-      currentOutlet: currentOutlet?.id,
-      loading,
-      retryCount
-    });
-    
-    const loadData = async () => {
-      if (!user) {
-        console.log('❌ No user found, skipping data load');
-        return;
-      }
-      
-      // Set loading to true at the start
-      setLoading(true);
-      
-      console.log('🔄 Starting data load for user:', user.id);
-      console.log('🔍 User details:', { 
-        id: user.id, 
-        email: user.email, 
-        isOutletUser, 
-        currentOutlet: currentOutlet?.id 
-      });
-      
-      try {
-        setError(null);
-        setLoading(true);
-        
-        console.log('📊 Loading main data...');
-        console.log('🔐 Staff user:', user?.id, user?.email, user?.role);
-        const [tasksData, allAssignments, usersData, outletsData, streakData, staffProfilesData] = await Promise.all([
-          tasksAPI.getAll(),
-          assignmentsAPI.getAll(),
-          usersAPI.getAll(),
-          outletsAPI.getAll(),
-          streakAPI.getStreakData(user.id),
-          staffProfilesAPI.getAll(),
-        ]);
-        
-        console.log('✅ Main data loaded successfully:', {
-          tasksCount: tasksData.length,
-          assignmentsCount: allAssignments.length,
-          usersCount: usersData.length,
-          outletsCount: outletsData.length,
-          staffProfilesCount: staffProfilesData.length,
-          streakData
-        });
-        
-        
-        setTasks(tasksData);
-        setUsers(usersData);
-        setOutlets(outletsData);
-        setAllStaffProfiles(staffProfilesData);
-        setCurrentStreak(streakData.currentStreak);
-        setLongestStreak(streakData.longestStreak);
-        
-        // Handle outlet users vs staff users
-        if (isOutletUser && currentOutlet) {
-          console.log('🏪 Loading data for outlet user, outlet:', currentOutlet.id);
-          
-          // Show ALL assignments for this outlet (both assigned and unassigned)
-          const outletAssignments = allAssignments.filter(assignment => 
-            assignment.outletId === currentOutlet.id
-          );
-          
-          console.log('🏪 All outlet assignments found:', outletAssignments.length);
-          
-          // For outlet users, only set assignments (don't set unassignedTasks separately)
-          // This prevents duplication in the display logic
-          setAssignments(outletAssignments);
-          setUnassignedTasks([]); // Clear unassigned tasks to prevent duplication
-          
-        } else {
-          // For staff users, get their profile first
-          console.log('👤 Loading data for staff user');
-          let currentStaffProfile = null;
-          try {
-            const staffProfiles = await staffProfilesAPI.getAll();
-            console.log('🔍 Staff profiles loaded:', staffProfiles);
-            console.log('🔍 Staff profiles count:', staffProfiles.length);
-            currentStaffProfile = staffProfiles.find(sp => sp.userId === user.id);
-            setStaffProfile(currentStaffProfile || null);
-            setAllStaffProfiles(staffProfiles);
-          } catch (error) {
-            console.error('❌ Error loading staff profiles:', error);
-            setAllStaffProfiles([]);
-          }
+  // One loader, used by the first render, the realtime callback and the
+  // auto-refresh hook alike. There used to be two near-identical copies that
+  // had already drifted: only one of them refreshed the roster and the streaks.
+  const loadData = useCallback(async () => {
+    if (!user) return;
 
-          if (currentStaffProfile) {
-            const assignmentsData = await assignmentsAPI.getByStaff(currentStaffProfile.id);
-            console.log('👤 Staff assignments found:', assignmentsData.length);
-            setAssignments(assignmentsData);
-            
-            // Filter unassigned tasks
-            const unassigned = allAssignments.filter(assignment =>
-              !assignment.staffId
-            );
-            console.log('👤 Unassigned tasks found:', unassigned.length);
-            setUnassignedTasks(unassigned);
-          } else {
-            console.log('👤 No staff profile found, setting empty assignments');
-            setAssignments([]);
-            setUnassignedTasks([]);
-          }
-        }
-        
-        console.log('🎯 Streak data loaded:', streakData);
-        
-        // Update streak after loading data (but don't await it to avoid blocking)
-        updateStreak().catch(error => {
-          console.error('❌ Error updating streak:', error);
-        });
-        
-      } catch (error) {
-        console.error('❌ Error loading dashboard data:', error);
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-        setError(errorMessage);
-        console.error('Error details:', {
-          message: errorMessage,
-          stack: error instanceof Error ? error.stack : undefined,
-          user: user?.id,
-          userRole: user?.role,
-          isOutletUser,
-          currentOutlet: currentOutlet?.id
-        });
-      } finally {
-        console.log('🏁 Data loading complete, setting loading to false');
-        setLoading(false);
-        setRetryCount(0); // Reset retry count on successful load
-      }
-    };
+    setLoading(true);
+    setError(null);
 
-    if (user) {
-      console.log('👤 User exists, calling loadData()');
-      loadData();
-    } else {
-      console.log('❌ No user, not calling loadData()');
-    }
-  }, [user]);
-
-  // Memoized refresh function to prevent infinite loops
-  const refreshData = useCallback(async () => {
-    if (user) {
-      // Re-run the same data loading logic
-      const [tasksData, allAssignments, usersData, outletsData, streakData] = await Promise.all([
+    try {
+      const [tasksData, allAssignments, outletsData, staffProfilesData] = await Promise.all([
         tasksAPI.getAll(),
         assignmentsAPI.getAll(),
-        usersAPI.getAll(),
         outletsAPI.getAll(),
-        streakAPI.getStreakData(user.id),
+        staffProfilesAPI.getAll(),
       ]);
-      
+
       setTasks(tasksData);
-      setUsers(usersData);
       setOutlets(outletsData);
-      setCurrentStreak(streakData.currentStreak);
-      setLongestStreak(streakData.longestStreak);
-      
+      setAllStaffProfiles(staffProfilesData);
+
+      // Only the handful of accounts that actually created these tasks, so the
+      // "assigned by" label can name them. This used to pull every user in the
+      // organization on every refresh.
+      const creatorIds = Array.from(
+        new Set(tasksData.map(t => t.createdBy).filter(Boolean))
+      );
+      setTaskCreators(creatorIds.length > 0 ? await usersAPI.getByIds(creatorIds) : []);
+
+      // Streaks belong to roster members, and the account signed in here is a
+      // branch rather than a person. Show the best streak on the branch's
+      // roster, which is at least meaningful; the personal streak this card
+      // used to read was always zero because nothing ever wrote one to a
+      // branch account.
+      setCurrentStreak(Math.max(0, ...staffProfilesData.map(s => s.currentStreak)));
+      setLongestStreak(Math.max(0, ...staffProfilesData.map(s => s.longestStreak)));
+
       if (isOutletUser && currentOutlet) {
-        // Show ALL assignments for this outlet (both assigned and unassigned)
-        const outletAssignments = allAssignments.filter(assignment => 
-          assignment.outletId === currentOutlet.id
-        );
-        setAssignments(outletAssignments);
-        const unassigned = outletAssignments.filter(assignment => !assignment.staffId);
-        setUnassignedTasks(unassigned);
+        // Both assigned and unassigned work for this branch. Unassigned tasks
+        // are picked out of `assignments` where they are needed, rather than
+        // kept in a second list that the display would then show twice.
+        setAssignments(allAssignments.filter(a => a.outletId === currentOutlet.id));
+        setUnassignedTasks([]);
       } else {
-        let currentStaffProfile = null;
-        try {
-          const staffProfiles = await staffProfilesAPI.getAll();
-          currentStaffProfile = staffProfiles.find(sp => sp.userId === user.id);
-          setStaffProfile(currentStaffProfile || null);
-          setAllStaffProfiles(staffProfiles);
-        } catch (error) {
-          console.error('❌ Error loading staff profiles:', error);
-          setAllStaffProfiles([]);
-        }
-        
-        if (currentStaffProfile) {
-          const assignmentsData = await assignmentsAPI.getByStaff(currentStaffProfile.id);
-          setAssignments(assignmentsData);
-          const unassigned = allAssignments.filter(assignment => !assignment.staffId);
-          setUnassignedTasks(unassigned);
-        }
+        // Every principal that reaches this dashboard is a branch, and a
+        // branch always has an outlet. Landing here means the session has no
+        // outlet claim yet, so there is nothing this account can read.
+        console.warn('Signed in without a branch; no assignments to show.');
+        setStaffProfile(null);
+        setAssignments([]);
+        setUnassignedTasks([]);
       }
+    } catch (error) {
+      console.error('Error loading dashboard data:', error);
+      setError(error instanceof Error ? error.message : 'Unknown error occurred');
+    } finally {
+      setLoading(false);
     }
   }, [user, isOutletUser, currentOutlet]);
 
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
   // Set up real-time updates for staff dashboard
   useEffect(() => {
-    if (user) {
-      console.log('🔔 Setting up real-time updates for staff dashboard');
-      
-      // Subscribe to dashboard metrics for real-time updates
-      const unsubscribe = realtimeService.subscribeToDashboardMetrics();
-      
-      // Set up notification callback for staff/outlet
-      realtimeService.setNotificationCallback((notification: any) => {
-        console.log('🔔 Staff received notification:', notification);
-        setToastNotification(notification);
-      });
-      
-      // Set up refresh callback for dashboard updates
-      realtimeService.setRefreshCallback(() => {
-        console.log('🔄 Staff dashboard refresh callback triggered!');
-        console.log('🔄 Calling refreshData...');
-        refreshData();
-      });
-      
-      return () => {
-        if (unsubscribe) {
-          unsubscribe();
-        }
-      };
-    }
-  }, [user, refreshData]);
+    if (!user) return;
+
+    const unsubscribe = realtimeService.subscribeToDashboardMetrics();
+    realtimeService.setNotificationCallback(setToastNotification);
+    realtimeService.setRefreshCallback(loadData);
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [user, loadData]);
 
   // Auto-refresh when data changes
   useAutoRefresh({ 
-    refreshFunction: refreshData
+    refreshFunction: loadData
   });
 
   const handleTakeTask = async (assignmentId: string) => {
@@ -334,7 +188,7 @@ const StaffDashboard: React.FC = () => {
       
       // Get the selected staff member's name for the success message
       const selectedStaff = availableStaffForAssignment.find(staff => staff.id === selectedStaffId);
-      const staffName = selectedStaff?.user?.name || 'Unknown Staff';
+      const staffName = selectedStaff?.name || 'Unknown Staff';
       
       await assignmentsAPI.update(selectedAssignmentId, {
         staffId: selectedStaffId,
@@ -407,14 +261,13 @@ const StaffDashboard: React.FC = () => {
   const getAssignedBy = (assignment: TaskAssignment) => {
     const task = tasks.find(t => t.id === assignment.taskId);
     if (!task) return 'Unknown';
-    const user = users.find(u => u.id === task.createdBy);
-    return user ? user.name : 'Unknown';
+    return taskCreators.find(u => u.id === task.createdBy)?.name || 'Unknown';
   };
 
   const getAssignedTo = (assignment: TaskAssignment) => {
     if (!assignment.staffId) return 'Unassigned';
     const staffProfile = allStaffProfiles.find(sp => sp.id === assignment.staffId);
-    return staffProfile ? (staffProfile.user?.name || 'Unknown Staff') : 'Unknown Staff';
+    return staffProfile ? (staffProfile.name || 'Unknown Staff') : 'Unknown Staff';
   };
 
   const getOutletName = (assignment: TaskAssignment) => {
@@ -463,20 +316,20 @@ const StaffDashboard: React.FC = () => {
 
       for (const staffProfile of outletStaff) {
         try {
-          console.log(`👤 Checking availability for staff: ${staffProfile.user?.name} (${staffProfile.id})`);
+          console.log(`👤 Checking availability for staff: ${staffProfile.name} (${staffProfile.id})`);
           
           // Get monthly schedule for this staff member
           const monthlySchedules = await monthlySchedulesAPI.getByStaff(staffProfile.id);
           const monthlySchedule = monthlySchedules.find((ms: any) => ms.month === month && ms.year === year);
           
           if (monthlySchedule) {
-            console.log(`📅 Found monthly schedule for ${staffProfile.user?.name}`);
+            console.log(`📅 Found monthly schedule for ${staffProfile.name}`);
             const dailySchedule = monthlySchedule.dailySchedules?.find((ds: any) => 
               new Date(ds.scheduleDate).toDateString() === dueDate.toDateString()
             );
 
             if (dailySchedule) {
-              console.log(`📅 Found daily schedule for ${staffProfile.user?.name}:`, {
+              console.log(`📅 Found daily schedule for ${staffProfile.name}:`, {
                 isDayOff: dailySchedule.isDayOff,
                 outletId: dailySchedule.outletId,
                 assignmentOutletId: assignment.outletId,
@@ -489,27 +342,27 @@ const StaffDashboard: React.FC = () => {
                   dailySchedule.outletId === assignment.outletId) {
                 
                 // Include anyone working that day at that outlet
-                console.log(`✅ Adding ${staffProfile.user?.name} to available staff`);
+                console.log(`✅ Adding ${staffProfile.name} to available staff`);
                 availableStaff.push(staffProfile);
               } else {
-                console.log(`❌ ${staffProfile.user?.name} not available - day off or wrong outlet`);
+                console.log(`❌ ${staffProfile.name} not available - day off or wrong outlet`);
               }
             } else {
-              console.log(`📅 No daily schedule for ${staffProfile.user?.name} on ${dueDate.toDateString()}`);
+              console.log(`📅 No daily schedule for ${staffProfile.name} on ${dueDate.toDateString()}`);
               // No schedule for this date, assume available
-              console.log(`✅ Adding ${staffProfile.user?.name} to available staff (no schedule)`);
+              console.log(`✅ Adding ${staffProfile.name} to available staff (no schedule)`);
               availableStaff.push(staffProfile);
             }
           } else {
-            console.log(`📅 No monthly schedule for ${staffProfile.user?.name} for ${month}/${year}`);
+            console.log(`📅 No monthly schedule for ${staffProfile.name} for ${month}/${year}`);
             // No monthly schedule, assume available
-            console.log(`✅ Adding ${staffProfile.user?.name} to available staff (no monthly schedule)`);
+            console.log(`✅ Adding ${staffProfile.name} to available staff (no monthly schedule)`);
             availableStaff.push(staffProfile);
           }
         } catch (error) {
           console.error('Error checking availability for staff:', staffProfile.id, error);
           // If we can't check availability, include them anyway
-          console.log(`✅ Adding ${staffProfile.user?.name} to available staff (error fallback)`);
+          console.log(`✅ Adding ${staffProfile.name} to available staff (error fallback)`);
           availableStaff.push(staffProfile);
         }
       }
@@ -544,10 +397,7 @@ const StaffDashboard: React.FC = () => {
   };
 
   const handleRescheduleSuccess = () => {
-    // Reload data to reflect the reschedule request
-    if (user) {
-      window.location.reload(); // Simple reload for now
-    }
+    loadData();
   };
 
   // Filter helper functions
@@ -564,15 +414,12 @@ const StaffDashboard: React.FC = () => {
 
       // Filter by status
       if (selectedStatus !== 'all') {
-        const isOverdue = assignment.dueDate && new Date(assignment.dueDate) < new Date();
-        const isCompleted = assignment.status === 'completed';
-        const isPending = assignment.status === 'pending';
-        const isPriority = tasks.find(t => t.id === assignment.taskId)?.isHighPriority;
-
-        if (selectedStatus === 'overdue' && !isOverdue) return false;
-        if (selectedStatus === 'pending' && !isPending) return false;
-        if (selectedStatus === 'completed' && !isCompleted) return false;
-        if (selectedStatus === 'priority' && !isPriority) return false;
+        if (selectedStatus === 'priority') {
+          return Boolean(tasks.find(t => t.id === assignment.taskId)?.isHighPriority);
+        }
+        // Was comparing the raw dueDate against now, which called a task due
+        // later today overdue and disagreed with the chip next to it.
+        if (effectiveStatus(assignment) !== selectedStatus) return false;
       }
 
       return true;
@@ -592,22 +439,10 @@ const StaffDashboard: React.FC = () => {
     setSelectedStatus('all');
   };
 
-  // Update streak when tasks are completed
-  const updateStreak = async () => {
-    if (!user) return;
-    
-    try {
-      const newStreak = await streakAPI.checkAndUpdateStreak(user.id);
-      setCurrentStreak(newStreak);
-      
-      // Update longest streak if current is higher
-      if (newStreak > longestStreak) {
-        setLongestStreak(newStreak);
-      }
-    } catch (error) {
-      console.error('Error updating streak:', error);
-    }
-  };
+  // Recalculating streaks used to happen here, on every dashboard load, against
+  // the signed-in account. That account is a branch, not a roster member, so the
+  // write had nowhere valid to land. Recalculation belongs in the scheduled job
+  // alongside the overdue sweep rather than in a render path.
 
   const handleCardClick = (filterType: string, value: string) => {
     if (filterType === 'status') {
@@ -690,15 +525,11 @@ const StaffDashboard: React.FC = () => {
     );
   }
 
+  // Reloading the page threw away the session restore and the realtime
+  // subscription to retry four queries. Just run them again.
   const handleRetry = () => {
-    console.log('🔄 Retry button clicked');
     setError(null);
-    setRetryCount(0);
-    setLoading(true);
-    // Trigger a re-render by updating a state
-    setTimeout(() => {
-      window.location.reload();
-    }, 100);
+    loadData();
   };
 
   if (error) {
@@ -1039,7 +870,7 @@ const StaffDashboard: React.FC = () => {
                         <MenuItem value="unassigned">Unassigned</MenuItem>
                         {allStaffProfiles.map((staff) => (
                           <MenuItem key={staff.id} value={staff.id}>
-                            {staff.user?.name || 'Unknown Staff'}
+                            {staff.name || 'Unknown Staff'}
                           </MenuItem>
                         ))}
                       </Select>
@@ -1691,7 +1522,7 @@ const StaffDashboard: React.FC = () => {
             ) : (
               <Autocomplete
                 options={availableStaffForAssignment}
-                getOptionLabel={(option) => option.user?.name || 'Unknown Staff'}
+                getOptionLabel={(option) => option.name || 'Unknown Staff'}
                 value={availableStaffForAssignment.find(profile => profile.id === selectedStaffId) || null}
                 onChange={(_, newValue) => {
                   setSelectedStaffId(newValue?.id || '');
@@ -1710,11 +1541,11 @@ const StaffDashboard: React.FC = () => {
                     <Box component="li" key={key} {...otherProps}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                         <Avatar sx={{ width: 32, height: 32 }}>
-                          {(option.user?.name || option.employeeId).charAt(0)}
+                          {(option.name || option.employeeId).charAt(0)}
                         </Avatar>
                         <Box>
                           <Typography variant="subtitle2">
-                            {option.user?.name || 'Unknown Staff'}
+                            {option.name || 'Unknown Staff'}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
                             {option.position?.name} • {option.employeeId}

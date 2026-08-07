@@ -18,18 +18,14 @@ import {
   TableRow,
   Paper,
   Avatar,
-  LinearProgress,
   Fade,
   Slide,
   Alert,
   Button,
-  IconButton,
-  Tooltip,
 } from '@mui/material';
 import {
   TrendingUp,
   CheckCircle,
-  Person,
   CalendarToday,
   FilterList,
   Refresh,
@@ -47,7 +43,7 @@ import {
 import { TaskAssignment, StaffProfile, Outlet, Task } from '../../types';
 
 const PerformanceTracker: React.FC = () => {
-  const { user, currentOutlet, isOutletUser } = useAuth();
+  const { user } = useAuth();
   const [assignments, setAssignments] = useState<TaskAssignment[]>([]);
   const [staffProfiles, setStaffProfiles] = useState<StaffProfile[]>([]);
   const [outlets, setOutlets] = useState<Outlet[]>([]);
@@ -173,7 +169,7 @@ const PerformanceTracker: React.FC = () => {
   const getStaffName = (staffId?: string): string => {
     if (!staffId) return 'Unassigned';
     const staff = staffProfiles.find(s => s.id === staffId);
-    return staff?.user?.name || 'Unknown Staff';
+    return staff?.name || 'Unknown Staff';
   };
 
   const getTaskTitle = (taskId: string): string => {
@@ -374,7 +370,7 @@ const PerformanceTracker: React.FC = () => {
                     <MenuItem value="all">All Staff Members</MenuItem>
                     {staffProfiles.map((staff) => (
                       <MenuItem key={staff.id} value={staff.id}>
-                        {staff.user?.name || 'Unknown Staff'}
+                        {staff.name || 'Unknown Staff'}
                       </MenuItem>
                     ))}
                   </Select>
@@ -455,11 +451,11 @@ const PerformanceTracker: React.FC = () => {
                       <TableCell>
                         <Box display="flex" alignItems="center" gap={2}>
                           <Avatar sx={{ bgcolor: 'primary.main', width: 32, height: 32 }}>
-                            {stat.staff.user?.name?.charAt(0) || stat.staff.id.charAt(0)}
+                            {stat.staff.name?.charAt(0) || stat.staff.id.charAt(0)}
                           </Avatar>
                           <Box>
                             <Typography variant="subtitle2" fontWeight="bold">
-                              {stat.staff.user?.name || 'Unknown Staff'}
+                              {stat.staff.name || 'Unknown Staff'}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
                               {stat.staff.position?.name || 'Staff Member'}

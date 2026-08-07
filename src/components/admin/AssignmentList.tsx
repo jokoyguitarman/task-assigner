@@ -35,14 +35,14 @@ import {
   ArrowDownward,
   PriorityHigh,
 } from '@mui/icons-material';
-import { TaskAssignment, Task, User, StaffProfile, Outlet } from '../../types';
-import { assignmentsAPI, tasksAPI, usersAPI, staffProfilesAPI, outletsAPI } from '../../services/supabaseService';
+import { TaskAssignment, Task, StaffProfile, Outlet } from '../../types';
+import { effectiveStatus, statusColor, statusLabel } from '../../lib/assignmentStatus';
+import { assignmentsAPI, tasksAPI, staffProfilesAPI, outletsAPI } from '../../services/supabaseService';
 import AssignmentForm from './AssignmentForm';
 
 const AssignmentList: React.FC = () => {
   const [assignments, setAssignments] = useState<TaskAssignment[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [staff, setStaff] = useState<User[]>([]);
   const [staffProfiles, setStaffProfiles] = useState<StaffProfile[]>([]);
   const [outlets, setOutlets] = useState<Outlet[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,23 +64,22 @@ const AssignmentList: React.FC = () => {
 
   const loadData = async () => {
     try {
-      const [assignmentsData, tasksData, staffData, staffProfilesData, outletsData] = await Promise.all([
+      // No longer fetches every user: staff names live on the roster now, so
+      // the extra round trip that existed only to resolve them is gone.
+      const [assignmentsData, tasksData, staffProfilesData, outletsData] = await Promise.all([
         assignmentsAPI.getAll(),
         tasksAPI.getAll(),
-        usersAPI.getAll(),
         staffProfilesAPI.getAll(),
         outletsAPI.getAll(),
       ]);
       setAssignments(assignmentsData);
       setTasks(tasksData);
-      setStaff(staffData);
       setStaffProfiles(staffProfilesData);
       setOutlets(outletsData);
       
       console.log('📊 Assignment List Data:');
       console.log('Assignments:', assignmentsData);
       console.log('Staff Profiles:', staffProfilesData);
-      console.log('Users:', staffData);
       console.log('Outlets:', outletsData);
     } catch (error) {
       console.error('Error loading data:', error);
@@ -118,48 +117,20 @@ const AssignmentList: React.FC = () => {
     loadData();
   };
 
-  // Helper function to check if an assignment is overdue
-  const isAssignmentOverdue = (assignment: TaskAssignment) => {
-    const today = new Date();
-    const dueDate = new Date(assignment.dueDate);
-    
-    // Set both dates to start of day for comparison (ignore time)
-    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const dueDateStart = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
-    
-    // Debug logging for overdue detection
-    if (assignment.taskId && (assignment.taskId.includes('Inventory') || assignment.taskId.includes('Clean'))) {
-      console.log('🔍 AssignmentList Overdue Debug for task:', assignment.taskId, {
-        originalDueDate: assignment.dueDate,
-        parsedDueDate: dueDate,
-        dueDateStart: dueDateStart,
-        today: today,
-        todayStart: todayStart,
-        isOverdue: todayStart > dueDateStart,
-        status: assignment.status
-      });
-    }
-    
-    return assignment.status === 'pending' && todayStart > dueDateStart;
-  };
-
-  const getStatusColor = (assignment: TaskAssignment) => {
-    if (assignment.status === 'completed') return 'success';
-    if (assignment.status === 'overdue' || isAssignmentOverdue(assignment)) return 'error';
-    return 'warning';
-  };
+  const getStatusColor = (assignment: TaskAssignment) => statusColor(effectiveStatus(assignment));
 
   const getStatusIcon = (assignment: TaskAssignment) => {
-    if (assignment.status === 'completed') return <CheckCircle />;
-    if (assignment.status === 'overdue' || isAssignmentOverdue(assignment)) return <Warning />;
-    return <Schedule />;
+    switch (effectiveStatus(assignment)) {
+      case 'completed':
+        return <CheckCircle />;
+      case 'overdue':
+        return <Warning />;
+      default:
+        return <Schedule />;
+    }
   };
 
-  const getDisplayStatus = (assignment: TaskAssignment) => {
-    if (assignment.status === 'completed') return 'completed';
-    if (assignment.status === 'overdue' || isAssignmentOverdue(assignment)) return 'overdue';
-    return 'pending';
-  };
+  const getDisplayStatus = (assignment: TaskAssignment) => statusLabel(effectiveStatus(assignment));
 
   const getTaskTitle = (taskId: string) => {
     const task = tasks.find(t => t.id === taskId);
@@ -173,16 +144,14 @@ const AssignmentList: React.FC = () => {
 
   const getStaffName = (staffId?: string) => {
     if (!staffId) return 'Unassigned';
-    const staffProfile = staffProfiles.find(sp => sp.id === staffId);
-    const user = staffProfile ? staff.find(u => u.id === staffProfile.userId) : null;
-    return user?.name || staffProfile?.user?.name || 'Unknown Staff';
+    return staffProfiles.find(sp => sp.id === staffId)?.name || 'Unknown Staff';
   };
 
-  const getStaffEmail = (staffId?: string) => {
+  // Roster members have no email, because they have no account. The employee ID
+  // is the identifier that actually distinguishes two people with the same name.
+  const getStaffEmployeeId = (staffId?: string) => {
     if (!staffId) return 'Available for self-assignment';
-    const staffProfile = staffProfiles.find(sp => sp.id === staffId);
-    const user = staffProfile ? staff.find(u => u.id === staffProfile.userId) : null;
-    return user?.email || staffProfile?.user?.email || '';
+    return staffProfiles.find(sp => sp.id === staffId)?.employeeId || '';
   };
 
   const getOutletName = (outletId?: string): string => {
@@ -210,15 +179,11 @@ const AssignmentList: React.FC = () => {
     
     // Filter by status
     if (selectedStatus !== null) {
-      filtered = filtered.filter(assignment => {
-        if (selectedStatus === 'overdue') {
-          return assignment.status === 'overdue' || isAssignmentOverdue(assignment);
-        } else if (selectedStatus === 'pending') {
-          return assignment.status === 'pending' && !isAssignmentOverdue(assignment);
-        } else {
-          return assignment.status === selectedStatus;
-        }
-      });
+      filtered = filtered.filter(assignment =>
+        selectedStatus === 'overdue' || selectedStatus === 'pending'
+          ? effectiveStatus(assignment) === selectedStatus
+          : assignment.status === selectedStatus
+      );
     }
     
     // Filter by staff
@@ -243,16 +208,6 @@ const AssignmentList: React.FC = () => {
 
   const handleOutletFilter = (outletId: string | null) => {
     setSelectedOutlet(outletId);
-  };
-
-  const getTaskCountByStatus = (status: string | null) => {
-    const activeAssignments = getActiveAssignments();
-    if (status === null) {
-      return activeAssignments.length;
-    }
-    return activeAssignments.filter(assignment => 
-      assignment.status === status
-    ).length;
   };
 
   const handleStatusFilter = (status: string | null) => {
@@ -590,7 +545,7 @@ const AssignmentList: React.FC = () => {
                             {getStaffName(assignment.staffId)}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
-                            {getStaffEmail(assignment.staffId)}
+                            {getStaffEmployeeId(assignment.staffId)}
                           </Typography>
                         </Box>
                       </Box>
@@ -801,7 +756,7 @@ const AssignmentList: React.FC = () => {
                     {getStaffName(assignmentToView.staffId)}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    {getStaffEmail(assignmentToView.staffId)}
+                    {getStaffEmployeeId(assignmentToView.staffId)}
                   </Typography>
                 </Box>
               </Box>

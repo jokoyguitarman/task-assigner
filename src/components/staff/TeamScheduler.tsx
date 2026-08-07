@@ -4,11 +4,8 @@ import {
   Card,
   CardContent,
   Typography,
-  Button,
-  Grid,
   IconButton,
   Chip,
-  Alert,
   Fade,
   Slide,
   Paper,
@@ -45,7 +42,7 @@ import {
 } from '../../types';
 
 const TeamScheduler: React.FC = () => {
-  const { user, currentOutlet, isOutletUser } = useAuth();
+  const { user } = useAuth();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [staffProfiles, setStaffProfiles] = useState<StaffProfile[]>([]);
   const [outlets, setOutlets] = useState<Outlet[]>([]);
@@ -420,7 +417,7 @@ const TeamScheduler: React.FC = () => {
                             <TableCell>
                               <Box>
                                 <Typography variant="subtitle2" fontWeight="bold">
-                                  {staff.user?.name}
+                                  {staff.name}
                                 </Typography>
                                 <Typography variant="caption" color="text.secondary">
                                   {staff.position?.name}
@@ -534,7 +531,7 @@ const TeamScheduler: React.FC = () => {
                                   {weekIndex === 0 && (
                                     <Box>
                                       <Typography variant="subtitle2" fontWeight="bold">
-                                        {staff.user?.name}
+                                        {staff.name}
                                       </Typography>
                                       <Typography variant="caption" color="text.secondary">
                                         {staff.position?.name}

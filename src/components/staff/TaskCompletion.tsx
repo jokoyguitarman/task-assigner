@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -9,32 +9,26 @@ import {
   TextField,
   Alert,
   CircularProgress,
-  LinearProgress,
   Chip,
   Grid,
-  Paper,
   IconButton,
-  Tooltip
 } from '@mui/material';
 import {
   ArrowBack,
   CameraAlt,
   Upload,
   CheckCircle,
-  Warning,
   AccessTime,
   Person,
   LocationOn,
   PriorityHigh
 } from '@mui/icons-material';
-import { useAuth } from '../../contexts/AuthContext';
-import { assignmentsAPI, tasksAPI, outletsAPI, usersAPI } from '../../services/supabaseService';
+import { assignmentsAPI, tasksAPI, outletsAPI, usersAPI, taskCompletionProofsAPI } from '../../services/supabaseService';
 import { TaskAssignment, Task, Outlet, User } from '../../types';
 
 const TaskCompletion: React.FC = () => {
   const { assignmentId } = useParams<{ assignmentId: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
   
   const [assignment, setAssignment] = useState<TaskAssignment | null>(null);
   const [task, setTask] = useState<Task | null>(null);
@@ -49,51 +43,41 @@ const TaskCompletion: React.FC = () => {
   const [completionNotes, setCompletionNotes] = useState('');
   const [proofFiles, setProofFiles] = useState<File[]>([]);
 
-  useEffect(() => {
-    if (assignmentId) {
-      loadAssignmentData();
-    }
-  }, [assignmentId]);
+  const loadAssignmentData = useCallback(async () => {
+    if (!assignmentId) return;
 
-  const loadAssignmentData = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Load assignment data with related information
-      const assignmentData = await assignmentsAPI.getById(assignmentId!);
+      const assignmentData = await assignmentsAPI.getById(assignmentId);
       setAssignment(assignmentData);
 
-      // Extract task and outlet data from the assignment
-      if (assignmentData.task) {
-        setTask(assignmentData.task);
-      } else {
-        // If task data not included, fetch it separately
-        const taskData = await tasksAPI.getById(assignmentData.taskId);
-        setTask(taskData);
-      }
-      
+      // The assignment query already joins the task and the outlet; only fall
+      // back to a second round trip if one is genuinely missing.
+      const taskData = assignmentData.task ?? (await tasksAPI.getById(assignmentData.taskId));
+      setTask(taskData);
+
       if (assignmentData.outlet) {
         setOutlet(assignmentData.outlet);
       } else if (assignmentData.outletId) {
-        // If outlet data not included, fetch it separately
-        const outletData = await outletsAPI.getById(assignmentData.outletId);
-        setOutlet(outletData);
+        setOutlet(await outletsAPI.getById(assignmentData.outletId));
       }
 
-      // Load users to find who assigned the task
-      const usersData = await usersAPI.getAll();
-      const taskToUse = assignmentData.task || await tasksAPI.getById(assignmentData.taskId);
-      const assigner = usersData.find(u => u.id === taskToUse.createdBy);
-      setAssignedBy(assigner || null);
-
+      // Who assigned it. This used to fetch every user in the organization to
+      // resolve one name.
+      setAssignedBy(taskData.createdBy ? await usersAPI.getById(taskData.createdBy) : null);
     } catch (err: any) {
       console.error('Error loading assignment data:', err);
       setError(err.message || 'Failed to load task details');
     } finally {
       setLoading(false);
     }
-  };
+  }, [assignmentId]);
+
+  useEffect(() => {
+    loadAssignmentData();
+  }, [loadAssignmentData]);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
@@ -126,20 +110,27 @@ const TaskCompletion: React.FC = () => {
     setError(null);
 
     try {
-      // For now, just mark as completed without file upload
-      // TODO: Implement file upload to Supabase storage
+      // Upload the evidence before marking the task done, so a storage failure
+      // does not leave a task recorded as complete with nothing behind it. This
+      // is the whole point of the feature: the owner needs to see the bins were
+      // actually taken out, not just that someone tapped a button.
+      const uploaded = await Promise.all(
+        proofFiles.map(file => taskCompletionProofsAPI.upload(assignment.id, file))
+      );
+
       await assignmentsAPI.update(assignment.id, {
         status: 'completed',
         completedAt: new Date(),
         minutesDeducted: task.estimatedMinutes,
-        // completionProof: 'placeholder' // Will be updated when file upload is implemented
+        completionProof: uploaded[0]?.filePath,
+        completionNotes: completionNotes.trim() || undefined,
+        completedByStaffId: assignment.staffId,
       });
 
       setSuccess(true);
       
-      // Redirect back to dashboard after 2 seconds
       setTimeout(() => {
-        navigate('/staff-dashboard');
+        navigate('/dashboard');
       }, 2000);
 
     } catch (err: any) {
@@ -154,7 +145,7 @@ const TaskCompletion: React.FC = () => {
     return (
       <Box sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-          <IconButton onClick={() => navigate('/staff-dashboard')} sx={{ mr: 2 }}>
+          <IconButton onClick={() => navigate('/dashboard')} sx={{ mr: 2 }}>
             <ArrowBack />
           </IconButton>
           <Typography variant="h4">Complete Task</Typography>
@@ -170,7 +161,7 @@ const TaskCompletion: React.FC = () => {
     return (
       <Box sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-          <IconButton onClick={() => navigate('/staff-dashboard')} sx={{ mr: 2 }}>
+          <IconButton onClick={() => navigate('/dashboard')} sx={{ mr: 2 }}>
             <ArrowBack />
           </IconButton>
           <Typography variant="h4">Complete Task</Typography>
@@ -178,7 +169,7 @@ const TaskCompletion: React.FC = () => {
         <Alert severity="error" sx={{ mb: 2 }}>
           {error}
         </Alert>
-        <Button variant="contained" onClick={() => navigate('/staff-dashboard')}>
+        <Button variant="contained" onClick={() => navigate('/dashboard')}>
           Back to Dashboard
         </Button>
       </Box>
@@ -189,7 +180,7 @@ const TaskCompletion: React.FC = () => {
     return (
       <Box sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-          <IconButton onClick={() => navigate('/staff-dashboard')} sx={{ mr: 2 }}>
+          <IconButton onClick={() => navigate('/dashboard')} sx={{ mr: 2 }}>
             <ArrowBack />
           </IconButton>
           <Typography variant="h4">Complete Task</Typography>
@@ -205,7 +196,7 @@ const TaskCompletion: React.FC = () => {
     return (
       <Box sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-          <IconButton onClick={() => navigate('/staff-dashboard')} sx={{ mr: 2 }}>
+          <IconButton onClick={() => navigate('/dashboard')} sx={{ mr: 2 }}>
             <ArrowBack />
           </IconButton>
           <Typography variant="h4">Complete Task</Typography>
@@ -220,7 +211,7 @@ const TaskCompletion: React.FC = () => {
   return (
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-        <IconButton onClick={() => navigate('/staff-dashboard')} sx={{ mr: 2 }}>
+        <IconButton onClick={() => navigate('/dashboard')} sx={{ mr: 2 }}>
           <ArrowBack />
         </IconButton>
         <Typography variant="h4">Complete Task</Typography>

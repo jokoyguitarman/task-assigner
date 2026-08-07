@@ -1,8 +1,10 @@
 import { supabase } from '../lib/supabase';
+import { requireOrganizationId } from '../lib/authClaims';
+import { toDateOnly, parseDateOnly, instantToLocalDate, addDays } from '../lib/dates';
 import { 
-  User, Task, TaskAssignment, StaffWorkingHours, 
+  User, Task, TaskAssignment, Organization,
   StaffPosition, Outlet, StaffProfile, MonthlySchedule, 
-  DailySchedule, TaskCompletionProof, Invitation, InvitationFormData
+  DailySchedule, TaskCompletionProof, Invitation, PublicInvitation, InvitationFormData
 } from '../types';
 
 // Helper function to check if Supabase is configured
@@ -18,9 +20,20 @@ const transformUser = (row: any): User => ({
   role: row.role,
   organizationId: row.organization_id,
   isPrimaryAdmin: row.is_primary_admin || false,
-  currentStreak: row.current_streak || 0,
-  longestStreak: row.longest_streak || 0,
-  lastClearBoardDate: row.last_clear_board_date ? new Date(row.last_clear_board_date) : undefined,
+  createdAt: new Date(row.created_at),
+  updatedAt: new Date(row.updated_at),
+});
+
+const transformOrganization = (row: any): Organization => ({
+  id: row.id,
+  name: row.name,
+  domain: row.domain,
+  timezone: row.timezone || 'Asia/Manila',
+  subscriptionTier: row.subscription_tier,
+  subscriptionStatus: row.subscription_status,
+  maxAdmins: row.max_admins,
+  maxRestaurants: row.max_restaurants,
+  maxEmployees: row.max_employees,
   createdAt: new Date(row.created_at),
   updatedAt: new Date(row.updated_at),
 });
@@ -46,11 +59,14 @@ const transformTaskAssignment = (row: any): TaskAssignment => ({
   staffId: row.staff_id || undefined,
   assignedDate: new Date(row.assigned_date),
   dueDate: new Date(row.due_date),
+  dueTime: row.due_time || undefined,
   outletId: row.outlet_id || undefined,
   organizationId: row.organization_id,
   status: row.status,
   completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
   completionProof: row.completion_proof,
+  completionNotes: row.completion_notes || undefined,
+  completedByStaffId: row.completed_by_staff_id || undefined,
   minutesDeducted: row.minutes_deducted,
   // Reschedule fields
   rescheduleRequestedAt: row.reschedule_requested_at ? new Date(row.reschedule_requested_at) : undefined,
@@ -61,9 +77,9 @@ const transformTaskAssignment = (row: any): TaskAssignment => ({
   rescheduleNewDueDate: row.reschedule_new_due_date ? new Date(row.reschedule_new_due_date) : undefined,
   createdAt: new Date(row.created_at),
   updatedAt: new Date(row.updated_at),
-  // Populated fields
+  // Populated fields. staff_id references the roster, not a login.
   task: row.task ? transformTask(row.task) : undefined,
-  staff: row.staff ? transformUser(row.staff) : undefined,
+  staff: row.staff ? transformStaffProfile(row.staff) : undefined,
   outlet: row.outlet ? transformOutlet(row.outlet) : undefined,
 });
 
@@ -87,21 +103,23 @@ const transformOutlet = (row: any): Outlet => ({
   organizationId: row.organization_id,
   isActive: row.is_active,
   createdAt: new Date(row.created_at),
-  username: row.username,
-  password: row.password,
 });
 
 const transformStaffProfile = (row: any): StaffProfile => ({
   id: row.id,
-  userId: row.user_id,
+  name: row.name,
   positionId: row.position_id,
   employeeId: row.employee_id,
-  hireDate: new Date(row.hire_date),
+  hireDate: parseDateOnly(row.hire_date),
+  outletId: row.outlet_id || undefined,
   organizationId: row.organization_id,
   isActive: row.is_active,
+  currentStreak: row.current_streak || 0,
+  longestStreak: row.longest_streak || 0,
+  lastClearBoardDate: row.last_clear_board_date ? parseDateOnly(row.last_clear_board_date) : undefined,
   createdAt: new Date(row.created_at),
-  user: row.user ? transformUser(row.user) : undefined,
   position: row.position ? transformStaffPosition(row.position) : undefined,
+  outlet: row.outlet ? transformOutlet(row.outlet) : undefined,
 });
 
 const transformMonthlySchedule = (row: any): MonthlySchedule => ({
@@ -116,42 +134,31 @@ const transformMonthlySchedule = (row: any): MonthlySchedule => ({
   dailySchedules: row.daily_schedules ? row.daily_schedules.map(transformDailySchedule) : [],
 });
 
-const transformDailySchedule = (row: any): DailySchedule => {
-  const transformed = {
-    id: row.id,
-    monthlyScheduleId: row.monthly_schedule_id,
-    scheduleDate: new Date(row.schedule_date),
-    outletId: row.outlet_id,
-    organizationId: row.organization_id,
-    timeIn: row.time_in,
-    timeOut: row.time_out,
-    isDayOff: row.is_day_off,
-    dayOffType: row.day_off_type,
-    notes: row.notes,
-    createdAt: new Date(row.created_at),
-    outlet: row.outlet ? transformOutlet(row.outlet) : undefined,
-  };
-  
-  // Debug logging for outlet assignments
-  if (row.outlet_id) {
-    console.log(`🔄 transformDailySchedule - Schedule ${row.id} has outlet ${row.outlet_id}`, {
-      outletId: transformed.outletId,
-      outletName: transformed.outlet?.name || 'No outlet name',
-      outletData: row.outlet
-    });
-  }
-  
-  return transformed;
-};
+const transformDailySchedule = (row: any): DailySchedule => ({
+  id: row.id,
+  monthlyScheduleId: row.monthly_schedule_id,
+  // Parsed as a local calendar day. new Date('2025-09-01') would be treated as
+  // UTC midnight and render as the previous day west of Greenwich.
+  scheduleDate: parseDateOnly(row.schedule_date),
+  outletId: row.outlet_id,
+  organizationId: row.organization_id,
+  timeIn: row.time_in,
+  timeOut: row.time_out,
+  isDayOff: row.is_day_off,
+  dayOffType: row.day_off_type,
+  notes: row.notes,
+  createdAt: new Date(row.created_at),
+  outlet: row.outlet ? transformOutlet(row.outlet) : undefined,
+});
 
 const transformTaskCompletionProof = (row: any): TaskCompletionProof => ({
   id: row.id,
   assignmentId: row.assignment_id,
-  filePath: row.file_url,
+  filePath: row.file_path,
   fileType: row.file_type,
   fileSize: row.file_size,
   uploadedAt: new Date(row.uploaded_at),
-  createdBy: row.created_by || row.assignment_id, // Use assignment_id as fallback
+  createdBy: row.created_by,
 });
 
 const transformInvitation = (row: any): Invitation => ({
@@ -171,6 +178,29 @@ const transformInvitation = (row: any): Invitation => ({
   createdByUser: row.created_by_user ? transformUser(row.created_by_user) : undefined,
 });
 
+const transformPublicInvitation = (row: any): PublicInvitation => ({
+  id: row.id,
+  email: row.email,
+  role: row.role,
+  outletId: row.outlet_id || undefined,
+  organizationId: row.organization_id,
+  token: row.token,
+  expiresAt: new Date(row.expires_at),
+  usedAt: row.used_at ? new Date(row.used_at) : undefined,
+  outletName: row.outlet_name || undefined,
+});
+
+// Thrown when someone authenticates successfully but has no profile row, so
+// they are not yet a principal of any organization. Not an error condition: it
+// is the normal state of a new owner before they create their restaurant, and of
+// an invited branch before it redeems its invitation. The caller routes to setup.
+export class ProfileNotProvisionedError extends Error {
+  constructor() {
+    super('This account is not set up yet.');
+    this.name = 'ProfileNotProvisionedError';
+  }
+}
+
 // Auth API
 export const authAPI = {
   async login(email: string, password: string): Promise<User> {
@@ -185,65 +215,38 @@ export const authAPI = {
 
     if (error) throw error;
 
-    // Get user profile
-    let { data: userData, error: userError } = await supabase
+    const { data: userData, error: userError } = await supabase
       .from('users')
       .select('*')
       .eq('id', data.user.id)
-      .single();
+      .maybeSingle();
 
-    // If user profile doesn't exist, create it
-    if (userError && userError.code === 'PGRST116') {
-      // Create a default user profile
-      const { data: newUserData, error: createError } = await supabase
-        .from('users')
-        .insert({
-          id: data.user.id,
-          email: data.user.email || email,
-          name: data.user.user_metadata?.name || data.user.email?.split('@')[0] || 'User',
-          role: 'admin', // Default to admin for now, you might want to make this configurable
-        })
-        .select()
-        .single();
+    if (userError) throw userError;
 
-      if (createError) throw createError;
-      userData = newUserData;
-    } else if (userError) {
-      throw userError;
-    }
+    // A missing profile used to be silently repaired by inserting one with
+    // role 'admin', which handed organization-wide access to anyone who could
+    // create an account. Provisioning is server-side now: bootstrap_organization
+    // for an owner, redeem_outlet_invitation for a branch.
+    if (!userData) throw new ProfileNotProvisionedError();
 
-    console.log('🔍 Final user data from database:', userData);
-    console.log('🔍 Transformed user:', transformUser(userData));
     return transformUser(userData);
   },
 
-  async signup(email: string, password: string, name: string, role: 'admin' | 'staff'): Promise<User> {
+  // Creates the auth account only. The profile that turns this account into a
+  // principal is created afterwards by bootstrap_organization or
+  // redeem_outlet_invitation, both of which decide the role server-side.
+  async signup(email: string, password: string, name: string): Promise<void> {
     if (!isSupabaseConfigured()) {
       throw new Error('Supabase not configured. Please set environment variables.');
     }
 
-    const { data, error } = await supabase.auth.signUp({
+    const { error } = await supabase.auth.signUp({
       email,
       password,
+      options: { data: { name } },
     });
 
     if (error) throw error;
-
-    // Create user profile
-    const { data: userData, error: userError } = await supabase
-      .from('users')
-      .insert({
-        id: data.user?.id,
-        email,
-        name,
-        role,
-      })
-      .select()
-      .single();
-
-    if (userError) throw userError;
-
-    return transformUser(userData);
   },
 
   async logout(): Promise<void> {
@@ -266,9 +269,9 @@ export const authAPI = {
       .from('users')
       .select('*')
       .eq('id', user.id)
-      .single();
+      .maybeSingle();
 
-    if (error) return null;
+    if (error || !userData) return null;
 
     return transformUser(userData);
   },
@@ -344,42 +347,18 @@ export const usersAPI = {
     return transformUser(data);
   },
 
-  async create(userData: Omit<User, 'id' | 'createdAt' | 'updatedAt'>): Promise<User> {
+  // Only the display name is writable from a client session. The database
+  // revokes UPDATE on every other column, so role, email and organization_id
+  // cannot be changed here even by a crafted request. Enrolling a staff member
+  // does not go through this API at all: see staffProfilesAPI.
+  async updateName(id: string, name: string): Promise<User> {
     if (!isSupabaseConfigured()) {
       throw new Error('Supabase not configured');
     }
 
     const { data, error } = await supabase
       .from('users')
-      .insert({
-        email: userData.email,
-        name: userData.name,
-        role: userData.role,
-        current_streak: userData.currentStreak,
-        longest_streak: userData.longestStreak,
-        last_clear_board_date: userData.lastClearBoardDate?.toISOString().split('T')[0],
-      })
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    return transformUser(data);
-  },
-
-  async update(id: string, userData: Partial<Omit<User, 'id' | 'createdAt' | 'updatedAt'>>): Promise<User> {
-    if (!isSupabaseConfigured()) {
-      throw new Error('Supabase not configured');
-    }
-
-    const { data, error } = await supabase
-      .from('users')
-      .update({
-        email: userData.email,
-        name: userData.name,
-        role: userData.role,
-        updated_at: new Date().toISOString(),
-      })
+      .update({ name })
       .eq('id', id)
       .select()
       .single();
@@ -388,18 +367,58 @@ export const usersAPI = {
 
     return transformUser(data);
   },
+};
 
-  async delete(id: string): Promise<void> {
+// Organizations API
+export const organizationsAPI = {
+  async getById(id: string): Promise<Organization | null> {
+    if (!isSupabaseConfigured()) {
+      return null;
+    }
+
+    const { data, error } = await supabase
+      .from('organizations')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error || !data) return null;
+
+    return transformOrganization(data);
+  },
+
+  // Turns a bare auth account into the owner of a new organization. Runs
+  // server-side so the subscription tier and its limits are not client-supplied,
+  // and refuses to run twice for the same account.
+  async bootstrap(organizationName: string, adminName: string, timezone?: string): Promise<string> {
     if (!isSupabaseConfigured()) {
       throw new Error('Supabase not configured');
     }
 
-    const { error } = await supabase
-      .from('users')
-      .delete()
-      .eq('id', id);
+    const { data, error } = await supabase.rpc('bootstrap_organization', {
+      p_organization_name: organizationName,
+      p_admin_name: adminName,
+      p_timezone: timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'Asia/Manila',
+    });
 
-    if (error) throw error;
+    if (error) throw new Error(error.message);
+
+    return data as string;
+  },
+
+  // Turns a bare auth account into a branch login, using an invitation issued by
+  // the owner. Verifies server-side that the caller's own email matches the
+  // invitation, so a leaked token alone is not enough to claim a branch.
+  async redeemOutletInvitation(token: string): Promise<string> {
+    if (!isSupabaseConfigured()) {
+      throw new Error('Supabase not configured');
+    }
+
+    const { data, error } = await supabase.rpc('redeem_outlet_invitation', { p_token: token });
+
+    if (error) throw new Error(error.message);
+
+    return data as string;
   },
 };
 
@@ -452,6 +471,7 @@ export const tasksAPI = {
         scheduled_date: taskData.scheduledDate,
         is_high_priority: taskData.isHighPriority,
         created_by: taskData.createdBy,
+        organization_id: taskData.organizationId || (await requireOrganizationId()),
       })
       .select()
       .single();
@@ -545,7 +565,7 @@ export const assignmentsAPI = {
         staff:staff_id (
           id,
           name,
-          email
+          employee_id
         ),
         outlet:outlet_id (
           id,
@@ -590,11 +610,15 @@ export const assignmentsAPI = {
         staff_id: assignmentData.staffId || null,
         assigned_date: assignmentData.assignedDate.toISOString(),
         due_date: assignmentData.dueDate.toISOString(),
+        // Persisted so a task can be late the same evening rather than only
+        // once the calendar rolls over. The form has always collected it.
+        due_time: assignmentData.dueTime || null,
         outlet_id: assignmentData.outletId || null,
-        organization_id: assignmentData.organizationId,
+        organization_id: assignmentData.organizationId || (await requireOrganizationId()),
         status: assignmentData.status,
         completed_at: assignmentData.completedAt?.toISOString(),
         completion_proof: assignmentData.completionProof,
+        completion_notes: assignmentData.completionNotes,
         minutes_deducted: assignmentData.minutesDeducted,
       })
       .select()
@@ -618,10 +642,13 @@ export const assignmentsAPI = {
     if (assignmentData.staffId !== undefined) updateData.staff_id = assignmentData.staffId || null;
     if (assignmentData.assignedDate) updateData.assigned_date = assignmentData.assignedDate.toISOString();
     if (assignmentData.dueDate) updateData.due_date = assignmentData.dueDate.toISOString();
+    if (assignmentData.dueTime !== undefined) updateData.due_time = assignmentData.dueTime || null;
     if (assignmentData.outletId !== undefined) updateData.outlet_id = assignmentData.outletId || null;
     if (assignmentData.status) updateData.status = assignmentData.status;
     if (assignmentData.completedAt) updateData.completed_at = assignmentData.completedAt.toISOString();
     if (assignmentData.completionProof) updateData.completion_proof = assignmentData.completionProof;
+    if (assignmentData.completionNotes !== undefined) updateData.completion_notes = assignmentData.completionNotes;
+    if (assignmentData.completedByStaffId !== undefined) updateData.completed_by_staff_id = assignmentData.completedByStaffId || null;
     if (assignmentData.minutesDeducted) updateData.minutes_deducted = assignmentData.minutesDeducted;
 
     const { data, error } = await supabase
@@ -681,7 +708,10 @@ export const assignmentsAPI = {
     return data.map(transformTaskAssignment);
   },
 
-  async complete(id: string, completionProof?: string): Promise<TaskAssignment> {
+  async complete(
+    id: string,
+    options: { completionProof?: string; notes?: string; completedByStaffId?: string } = {}
+  ): Promise<TaskAssignment> {
     if (!isSupabaseConfigured()) {
       throw new Error('Supabase not configured');
     }
@@ -691,8 +721,9 @@ export const assignmentsAPI = {
       .update({
         status: 'completed',
         completed_at: new Date().toISOString(),
-        completion_proof: completionProof,
-        updated_at: new Date().toISOString(),
+        completion_proof: options.completionProof,
+        completion_notes: options.notes,
+        completed_by_staff_id: options.completedByStaffId || null,
       })
       .eq('id', id)
       .select()
@@ -749,6 +780,9 @@ export const staffPositionsAPI = {
         description: positionData.description,
         is_custom: positionData.isCustom,
         created_by: positionData.createdBy,
+        // Custom positions belong to one organization. The built-in positions
+        // seeded with the schema have a null organization_id and are shared.
+        organization_id: await requireOrganizationId(),
       })
       .select()
       .single();
@@ -833,6 +867,9 @@ export const outletsAPI = {
       throw new Error('Supabase not configured');
     }
 
+    // A branch's login is not created here. Credentials live in Supabase Auth,
+    // reached by inviting the branch; the invitation redemption links the
+    // resulting account back to this row.
     const { data, error } = await supabase
       .from('outlets')
       .insert({
@@ -841,9 +878,8 @@ export const outletsAPI = {
         phone: outletData.phone,
         email: outletData.email,
         manager_id: outletData.managerId,
-        is_active: outletData.isActive,
-        username: outletData.username,
-        password: outletData.password,
+        is_active: outletData.isActive ?? true,
+        organization_id: outletData.organizationId || (await requireOrganizationId()),
       })
       .select()
       .single();
@@ -858,18 +894,17 @@ export const outletsAPI = {
       throw new Error('Supabase not configured');
     }
 
+    const updateData: any = {};
+    if (outletData.name !== undefined) updateData.name = outletData.name;
+    if (outletData.address !== undefined) updateData.address = outletData.address;
+    if (outletData.phone !== undefined) updateData.phone = outletData.phone;
+    if (outletData.email !== undefined) updateData.email = outletData.email;
+    if (outletData.managerId !== undefined) updateData.manager_id = outletData.managerId || null;
+    if (outletData.isActive !== undefined) updateData.is_active = outletData.isActive;
+
     const { data, error } = await supabase
       .from('outlets')
-      .update({
-        name: outletData.name,
-        address: outletData.address,
-        phone: outletData.phone,
-        email: outletData.email,
-        manager_id: outletData.managerId,
-        is_active: outletData.isActive,
-        username: outletData.username,
-        password: outletData.password,
-      })
+      .update(updateData)
       .eq('id', id)
       .select()
       .single();
@@ -905,39 +940,17 @@ export const outletsAPI = {
   },
 };
 
-// Helper function to enrich staff profiles with user data
-const enrichStaffProfilesWithUsers = async (staffProfiles: StaffProfile[]): Promise<StaffProfile[]> => {
-  if (staffProfiles.length === 0) {
-    return staffProfiles;
-  }
-
-  try {
-    // Get unique user IDs from staff profiles
-    const userIds = Array.from(new Set(staffProfiles.map(sp => sp.userId).filter(Boolean)));
-    
-    if (userIds.length === 0) {
-      return staffProfiles;
-    }
-
-    // Fetch user data
-    const users = await usersAPI.getByIds(userIds);
-    
-    // Create a lookup map
-    const userMap = new Map(users.map(user => [user.id, user]));
-    
-    // Enrich staff profiles with user data
-    return staffProfiles.map(sp => ({
-      ...sp,
-      user: userMap.get(sp.userId) || undefined
-    }));
-  } catch (error) {
-    console.error('Error enriching staff profiles with user data:', error);
-    // Return original staff profiles if user data fails to load
-    return staffProfiles;
-  }
-};
-
 // Staff Profiles API
+//
+// The roster. A staff member is a row here and nothing else: no auth account, no
+// users row, no credentials. Their name lives on this row, so the extra lookup
+// that used to be needed to display it is gone.
+const STAFF_SELECT = `
+        *,
+        position:staff_positions(*),
+        outlet:outlets(*)
+      `;
+
 export const staffProfilesAPI = {
   async getAll(): Promise<StaffProfile[]> {
     if (!isSupabaseConfigured()) {
@@ -946,18 +959,12 @@ export const staffProfilesAPI = {
 
     const { data, error } = await supabase
       .from('staff_profiles')
-      .select(`
-        *,
-        position:staff_positions(*)
-      `)
-      .order('created_at', { ascending: false });
+      .select(STAFF_SELECT)
+      .order('name', { ascending: true });
 
     if (error) throw error;
 
-    const staffProfiles = data.map(transformStaffProfile);
-    
-    // Enrich with user data
-    return await enrichStaffProfilesWithUsers(staffProfiles);
+    return data.map(transformStaffProfile);
   },
 
   async getById(id: string): Promise<StaffProfile> {
@@ -967,23 +974,16 @@ export const staffProfilesAPI = {
 
     const { data, error } = await supabase
       .from('staff_profiles')
-      .select(`
-        *,
-        position:staff_positions(*)
-      `)
+      .select(STAFF_SELECT)
       .eq('id', id)
       .single();
 
     if (error) throw error;
 
-    const staffProfile = transformStaffProfile(data);
-    
-    // Enrich with user data
-    const enriched = await enrichStaffProfilesWithUsers([staffProfile]);
-    return enriched[0];
+    return transformStaffProfile(data);
   },
 
-  async create(profileData: Omit<StaffProfile, 'id' | 'createdAt'>): Promise<StaffProfile> {
+  async create(profileData: Omit<StaffProfile, 'id' | 'createdAt' | 'currentStreak' | 'longestStreak'>): Promise<StaffProfile> {
     if (!isSupabaseConfigured()) {
       throw new Error('Supabase not configured');
     }
@@ -991,25 +991,20 @@ export const staffProfilesAPI = {
     const { data, error } = await supabase
       .from('staff_profiles')
       .insert({
-        user_id: profileData.userId,
+        name: profileData.name,
         position_id: profileData.positionId,
         employee_id: profileData.employeeId,
-        hire_date: profileData.hireDate.toISOString(),
-        is_active: profileData.isActive,
+        hire_date: toDateOnly(profileData.hireDate),
+        outlet_id: profileData.outletId || null,
+        is_active: profileData.isActive ?? true,
+        organization_id: profileData.organizationId || (await requireOrganizationId()),
       })
-      .select(`
-        *,
-        position:staff_positions(*)
-      `)
+      .select(STAFF_SELECT)
       .single();
 
     if (error) throw error;
 
-    const staffProfile = transformStaffProfile(data);
-    
-    // Enrich with user data
-    const enriched = await enrichStaffProfilesWithUsers([staffProfile]);
-    return enriched[0];
+    return transformStaffProfile(data);
   },
 
   async update(id: string, profileData: Partial<Omit<StaffProfile, 'id' | 'createdAt'>>): Promise<StaffProfile> {
@@ -1018,29 +1013,23 @@ export const staffProfilesAPI = {
     }
 
     const updateData: any = {};
-    if (profileData.userId) updateData.user_id = profileData.userId;
+    if (profileData.name !== undefined) updateData.name = profileData.name;
     if (profileData.positionId) updateData.position_id = profileData.positionId;
     if (profileData.employeeId) updateData.employee_id = profileData.employeeId;
-    if (profileData.hireDate) updateData.hire_date = profileData.hireDate.toISOString();
+    if (profileData.hireDate) updateData.hire_date = toDateOnly(profileData.hireDate);
+    if (profileData.outletId !== undefined) updateData.outlet_id = profileData.outletId || null;
     if (profileData.isActive !== undefined) updateData.is_active = profileData.isActive;
 
     const { data, error } = await supabase
       .from('staff_profiles')
       .update(updateData)
       .eq('id', id)
-      .select(`
-        *,
-        position:staff_positions(*)
-      `)
+      .select(STAFF_SELECT)
       .single();
 
     if (error) throw error;
 
-    const staffProfile = transformStaffProfile(data);
-    
-    // Enrich with user data
-    const enriched = await enrichStaffProfilesWithUsers([staffProfile]);
-    return enriched[0];
+    return transformStaffProfile(data);
   },
 
   async delete(id: string): Promise<void> {
@@ -1071,7 +1060,6 @@ export const monthlySchedulesAPI = {
         *,
         staff:staff_profiles(
           *,
-          user:users(*),
           position:staff_positions(*)
         ),
         daily_schedules(
@@ -1097,7 +1085,6 @@ export const monthlySchedulesAPI = {
         *,
         staff:staff_profiles(
           *,
-          user:users(*),
           position:staff_positions(*)
         ),
         daily_schedules(
@@ -1125,7 +1112,6 @@ export const monthlySchedulesAPI = {
         *,
         staff:staff_profiles(
           *,
-          user:users(*),
           position:staff_positions(*)
         ),
         daily_schedules(
@@ -1146,19 +1132,23 @@ export const monthlySchedulesAPI = {
       throw new Error('Supabase not configured');
     }
 
+    // Upsert, not insert. There is now a unique constraint on
+    // (staff_id, month, year); its absence is why the scheduler managed to
+    // create 41 surplus duplicate rows. Re-opening a month must reuse the
+    // existing row rather than fail.
     const { data, error } = await supabase
       .from('monthly_schedules')
-      .insert({
+      .upsert({
         staff_id: scheduleData.staffId,
         month: scheduleData.month,
         year: scheduleData.year,
         created_by: scheduleData.createdBy,
-      })
+        organization_id: scheduleData.organizationId || (await requireOrganizationId()),
+      }, { onConflict: 'staff_id,month,year' })
       .select(`
         *,
         staff:staff_profiles(
           *,
-          user:users(*),
           position:staff_positions(*)
         ),
         daily_schedules(
@@ -1192,7 +1182,6 @@ export const monthlySchedulesAPI = {
         *,
         staff:staff_profiles(
           *,
-          user:users(*),
           position:staff_positions(*)
         ),
         daily_schedules(
@@ -1234,24 +1223,27 @@ export const dailySchedulesAPI = {
       throw new Error('Supabase not configured');
     }
 
-    console.log('🔄 dailySchedulesAPI.create called with:', scheduleData);
+    // A day off cannot also be a shift: the database now rejects a row that
+    // claims both, so normalise here rather than surfacing a constraint error.
+    const isDayOff = scheduleData.isDayOff;
 
-    const insertData = {
+    const upsertData = {
       monthly_schedule_id: scheduleData.monthlyScheduleId,
-      schedule_date: scheduleData.scheduleDate.toISOString(),
-      outlet_id: scheduleData.outletId || null,
-      time_in: scheduleData.timeIn,
-      time_out: scheduleData.timeOut,
-      is_day_off: scheduleData.isDayOff,
-      day_off_type: scheduleData.dayOffType,
+      // Business date in the organization's timezone, not an instant. Sending a
+      // UTC ISO string here is what shifted schedules by a day for evening edits.
+      schedule_date: toDateOnly(scheduleData.scheduleDate),
+      outlet_id: isDayOff ? null : scheduleData.outletId || null,
+      time_in: isDayOff ? null : scheduleData.timeIn || null,
+      time_out: isDayOff ? null : scheduleData.timeOut || null,
+      is_day_off: isDayOff,
+      day_off_type: isDayOff ? scheduleData.dayOffType || null : null,
       notes: scheduleData.notes,
+      organization_id: scheduleData.organizationId || (await requireOrganizationId()),
     };
-
-    console.log('🔄 Insert data being sent to Supabase:', insertData);
 
     const { data, error } = await supabase
       .from('daily_schedules')
-      .insert(insertData)
+      .upsert(upsertData, { onConflict: 'monthly_schedule_id,schedule_date' })
       .select(`
         *,
         outlet:outlets(*)
@@ -1268,24 +1260,28 @@ export const dailySchedulesAPI = {
       throw new Error('Supabase not configured');
     }
 
-    console.log('🔄 dailySchedulesAPI.update called with:', { id, scheduleData });
-
     const updateData: any = {};
     if (scheduleData.monthlyScheduleId) updateData.monthly_schedule_id = scheduleData.monthlyScheduleId;
-    if (scheduleData.scheduleDate) updateData.schedule_date = scheduleData.scheduleDate.toISOString();
-    
-    // Fix: Always update outlet_id, even if it's null/undefined/empty string
-    if (scheduleData.hasOwnProperty('outletId')) {
-      updateData.outlet_id = scheduleData.outletId || null;
-    }
-    
-    if (scheduleData.timeIn) updateData.time_in = scheduleData.timeIn;
-    if (scheduleData.timeOut) updateData.time_out = scheduleData.timeOut;
-    if (scheduleData.isDayOff !== undefined) updateData.is_day_off = scheduleData.isDayOff;
-    if (scheduleData.dayOffType) updateData.day_off_type = scheduleData.dayOffType;
-    if (scheduleData.notes) updateData.notes = scheduleData.notes;
+    if (scheduleData.scheduleDate) updateData.schedule_date = toDateOnly(scheduleData.scheduleDate);
 
-    console.log('🔄 Update data being sent to Supabase:', updateData);
+    if (scheduleData.isDayOff) {
+      // Marking a day off clears the shift, or the row would violate the check.
+      updateData.is_day_off = true;
+      updateData.outlet_id = null;
+      updateData.time_in = null;
+      updateData.time_out = null;
+      updateData.day_off_type = scheduleData.dayOffType || null;
+    } else {
+      if (scheduleData.isDayOff !== undefined) {
+        updateData.is_day_off = false;
+        updateData.day_off_type = null;
+      }
+      if ('outletId' in scheduleData) updateData.outlet_id = scheduleData.outletId || null;
+      if (scheduleData.timeIn !== undefined) updateData.time_in = scheduleData.timeIn || null;
+      if (scheduleData.timeOut !== undefined) updateData.time_out = scheduleData.timeOut || null;
+    }
+
+    if (scheduleData.notes !== undefined) updateData.notes = scheduleData.notes;
 
     const { data, error } = await supabase
       .from('daily_schedules')
@@ -1316,8 +1312,69 @@ export const dailySchedulesAPI = {
   },
 };
 
+export const PROOF_BUCKET = 'task-proofs';
+
 // Task Completion Proofs API
 export const taskCompletionProofsAPI = {
+  // Uploads the evidence and records it.
+  //
+  // Paths are <organization_id>/<assignment_id>/<file>, because the storage
+  // policies match the first path segment against the caller's organization
+  // claim. There is deliberately no update or delete policy on the bucket, so
+  // proof cannot be swapped out or removed from a client session after the fact.
+  async upload(assignmentId: string, file: File): Promise<TaskCompletionProof> {
+    if (!isSupabaseConfigured()) {
+      throw new Error('Supabase not configured');
+    }
+
+    const organizationId = await requireOrganizationId();
+    const extension = file.name.includes('.') ? file.name.split('.').pop() : 'bin';
+    const path = `${organizationId}/${assignmentId}/${crypto.randomUUID()}.${extension}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from(PROOF_BUCKET)
+      .upload(path, file, { contentType: file.type, upsert: false });
+
+    if (uploadError) throw new Error(`Could not upload proof: ${uploadError.message}`);
+
+    const { data: { user } } = await supabase.auth.getUser();
+
+    const { data, error } = await supabase
+      .from('task_completion_proofs')
+      .insert({
+        assignment_id: assignmentId,
+        file_path: path,
+        file_type: file.type.startsWith('video/') ? 'video' : 'image',
+        file_size: file.size,
+        created_by: user?.id,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return transformTaskCompletionProof(data);
+  },
+
+  // The bucket is private, so viewing proof needs a short-lived signed URL
+  // rather than a public link.
+  async getSignedUrl(filePath: string, expiresInSeconds = 3600): Promise<string | null> {
+    if (!isSupabaseConfigured()) {
+      return null;
+    }
+
+    const { data, error } = await supabase.storage
+      .from(PROOF_BUCKET)
+      .createSignedUrl(filePath, expiresInSeconds);
+
+    if (error) {
+      console.error('Could not sign proof URL:', error);
+      return null;
+    }
+
+    return data.signedUrl;
+  },
+
   async getByAssignment(assignmentId: string): Promise<TaskCompletionProof[]> {
     if (!isSupabaseConfigured()) {
       return [];
@@ -1343,7 +1400,7 @@ export const taskCompletionProofsAPI = {
       .from('task_completion_proofs')
       .insert({
         assignment_id: proofData.assignmentId,
-        file_url: proofData.filePath,
+        file_path: proofData.filePath,
         file_type: proofData.fileType,
         file_size: proofData.fileSize,
         created_by: proofData.createdBy,
@@ -1367,31 +1424,6 @@ export const taskCompletionProofsAPI = {
       .eq('id', id);
 
     if (error) throw error;
-  },
-};
-
-// Working Hours API (for backward compatibility)
-export const workingHoursAPI = {
-  async getAll(): Promise<StaffWorkingHours[]> {
-    // This would need to be implemented based on your specific requirements
-    // For now, returning empty array
-    return [];
-  },
-
-  async getByStaff(staffId: string): Promise<StaffWorkingHours[]> {
-    // This would need to be implemented based on your specific requirements
-    // For now, returning empty array
-    return [];
-  },
-
-  async create(workingHoursData: Omit<StaffWorkingHours, 'id' | 'createdAt' | 'updatedAt'>): Promise<StaffWorkingHours> {
-    // This would need to be implemented based on your specific requirements
-    throw new Error('Not implemented yet');
-  },
-
-  async update(id: string, workingHoursData: Partial<Omit<StaffWorkingHours, 'id' | 'createdAt' | 'updatedAt'>>): Promise<StaffWorkingHours> {
-    // This would need to be implemented based on your specific requirements
-    throw new Error('Not implemented yet');
   },
 };
 
@@ -1419,36 +1451,38 @@ export const invitationsAPI = {
     return data.map(transformInvitation);
   },
 
-  async getByToken(token: string): Promise<Invitation | null> {
+  async getByToken(token: string): Promise<PublicInvitation | null> {
     if (!isSupabaseConfigured()) {
       throw new Error('Supabase not configured. Please set environment variables.');
     }
 
-    console.log('🔍 invitationsAPI.getByToken called with token:', token);
-
     const { data, error } = await supabase
-      .from('invitations')
-      .select(`
-        *,
-        outlet:outlets(*),
-        created_by_user:users!invitations_created_by_fkey(*)
-      `)
-      .eq('token', token)
-      .single();
-
-    console.log('📊 Supabase response:', { data, error });
+      .rpc('get_invitation_by_token', { p_token: token })
+      .maybeSingle();
 
     if (error) {
-      if (error.code === 'PGRST116') {
-        console.log('❌ No invitation found (PGRST116)');
-        return null; // No invitation found
-      }
       console.error('Error fetching invitation by token:', error);
       throw new Error(`Failed to fetch invitation: ${error.message}`);
     }
 
-    console.log('✅ Invitation found, transforming data');
-    return transformInvitation(data);
+    return data ? transformPublicInvitation(data) : null;
+  },
+
+  async findPending(email: string, role: 'outlet' = 'outlet'): Promise<PublicInvitation | null> {
+    if (!isSupabaseConfigured()) {
+      throw new Error('Supabase not configured. Please set environment variables.');
+    }
+
+    const { data, error } = await supabase
+      .rpc('find_pending_invitation', { p_email: email, p_role: role })
+      .maybeSingle();
+
+    if (error) {
+      console.error('Error looking up invitation:', error);
+      throw new Error(`Failed to look up invitation: ${error.message}`);
+    }
+
+    return data ? transformPublicInvitation(data) : null;
   },
 
   async create(invitationData: InvitationFormData & { createdBy: string }): Promise<Invitation> {
@@ -1472,6 +1506,7 @@ export const invitationsAPI = {
         token,
         expires_at: expiresAt.toISOString(),
         created_by: invitationData.createdBy,
+        organization_id: await requireOrganizationId(),
       })
       .select(`
         *,
@@ -1488,20 +1523,21 @@ export const invitationsAPI = {
     return transformInvitation(data);
   },
 
-  async markAsUsed(token: string): Promise<void> {
+  // Returns false when the invitation was already redeemed or has expired. The
+  // database enforces that, so two people racing the same link cannot both win.
+  async markAsUsed(token: string): Promise<boolean> {
     if (!isSupabaseConfigured()) {
       throw new Error('Supabase not configured. Please set environment variables.');
     }
 
-    const { error } = await supabase
-      .from('invitations')
-      .update({ used_at: new Date().toISOString() })
-      .eq('token', token);
+    const { data, error } = await supabase.rpc('mark_invitation_used', { p_token: token });
 
     if (error) {
       console.error('Error marking invitation as used:', error);
       throw new Error(`Failed to mark invitation as used: ${error.message}`);
     }
+
+    return data === true;
   },
 
   async delete(id: string): Promise<void> {
@@ -1632,7 +1668,7 @@ export const rescheduleAPI = {
           staff:staff_id (
             id,
             name,
-            email
+            employee_id
           ),
           outlet:outlet_id (
             id,
@@ -1655,10 +1691,13 @@ export const rescheduleAPI = {
   }
 };
 
-// Streak calculation functions
+// Streak calculation functions.
+//
+// Streaks belong to roster members, so every id here is a staff_profiles.id.
+// task_assignments.staff_id references the same table.
 export const streakAPI = {
-  // Check if user had any tasks assigned on a given date
-  hadTasksOnDate: async (userId: string, date: Date): Promise<boolean> => {
+  // Check if a roster member had any tasks assigned on a given date
+  hadTasksOnDate: async (staffId: string, date: Date): Promise<boolean> => {
     if (!isSupabaseConfigured()) {
       console.warn('Supabase not configured, returning false for task check');
       return false;
@@ -1674,7 +1713,7 @@ export const streakAPI = {
       const { data, error } = await supabase
         .from('task_assignments')
         .select('id')
-        .eq('staff_id', userId)
+        .eq('staff_id', staffId)
         .gte('assigned_date', startOfDay.toISOString())
         .lte('assigned_date', endOfDay.toISOString())
         .limit(1);
@@ -1688,68 +1727,46 @@ export const streakAPI = {
     }
   },
 
-  // Check if user has any pending or overdue tasks for a given date
-  hasPendingOrOverdueTasks: async (userId: string, date: Date): Promise<boolean> => {
+  // Does this roster member have anything already past its due date? A task that
+  // is pending but not yet due does not count: the day is not over.
+  hasOverdueTasks: async (staffId: string): Promise<boolean> => {
     if (!isSupabaseConfigured()) {
-      console.warn('Supabase not configured, returning false for streak check');
       return false;
     }
 
     try {
-      const startOfDay = new Date(date);
-      startOfDay.setHours(0, 0, 0, 0);
-      
-      const endOfDay = new Date(date);
-      endOfDay.setHours(23, 59, 59, 999);
-
       const { data, error } = await supabase
         .from('task_assignments')
         .select('status, due_date')
-        .eq('staff_id', userId)
-        .or('status.eq.pending,status.eq.overdue');
+        .eq('staff_id', staffId)
+        .in('status', ['pending', 'overdue']);
 
       if (error) throw error;
 
-      // Check if any tasks are overdue based on due date
-      const hasOverdueTasks = data?.some(task => {
-        if (task.status === 'overdue') return true;
-        if (task.due_date) {
-          const dueDate = new Date(task.due_date);
-          const today = new Date();
-          
-          // Set both dates to start of day for comparison (ignore time)
-          const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-          const dueDateStart = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
-          
-          if (todayStart > dueDateStart && task.status !== 'completed') {
-            return true;
-          }
-        }
-        return false;
-      });
+      const today = toDateOnly(new Date());
 
-      return hasOverdueTasks || false;
+      return (data || []).some(task => {
+        if (task.status === 'overdue') return true;
+        return Boolean(task.due_date) && toDateOnly(parseDateOnly(task.due_date)) < today;
+      });
     } catch (error: any) {
-      console.error('Error checking pending/overdue tasks:', error);
-      return false; // Default to false to avoid breaking streaks
+      console.error('Error checking overdue tasks:', error);
+      return false; // Do not break a streak because a query failed.
     }
   },
 
-  // Calculate current streak for a user
-  calculateCurrentStreak: async (userId: string): Promise<number> => {
+  // Calculate current streak for a roster member
+  calculateCurrentStreak: async (staffId: string): Promise<number> => {
     if (!isSupabaseConfigured()) {
       console.warn('Supabase not configured, returning 0 for streak');
       return 0;
     }
 
     try {
-      console.log('🔍 Calculating streak for user:', userId);
-      
-      // Get all completed tasks for this user, ordered by completion date
       const { data: completedTasks, error } = await supabase
         .from('task_assignments')
         .select('completed_at')
-        .eq('staff_id', userId)
+        .eq('staff_id', staffId)
         .eq('status', 'completed')
         .not('completed_at', 'is', null)
         .order('completed_at', { ascending: false });
@@ -1757,40 +1774,33 @@ export const streakAPI = {
       if (error) throw error;
 
       if (!completedTasks || completedTasks.length === 0) {
-        console.log('🔍 No completed tasks found, streak is 0');
         return 0;
       }
 
-      // Group completed tasks by date
+      // Bin completions by the local calendar day they happened on. Binning by
+      // the UTC day credits a task finished during a Manila closing shift after
+      // midnight to the day before.
       const completedDates = new Set<string>();
       completedTasks.forEach(task => {
         if (task.completed_at) {
-          const completionDate = new Date(task.completed_at);
-          const dateString = completionDate.toISOString().split('T')[0]; // YYYY-MM-DD
-          completedDates.add(dateString);
+          completedDates.add(instantToLocalDate(task.completed_at));
         }
       });
 
-      // Calculate consecutive days from today backwards
+      // Today is still in progress, so an empty today does not break a streak —
+      // it just does not extend it yet. Counting from today unconditionally made
+      // every streak read zero each morning until the first task was ticked off.
       const today = new Date();
-      let streak = 0;
-      let currentDate = new Date(today);
+      let cursor = completedDates.has(toDateOnly(today)) ? today : addDays(today, -1);
 
-      // Check each day going backwards (limit to 365 days to prevent infinite loops)
+      let streak = 0;
+      // Bounded so a clock skew cannot spin this forever.
       for (let i = 0; i < 365; i++) {
-        const dateString = currentDate.toISOString().split('T')[0];
-        
-        if (completedDates.has(dateString)) {
-          // User completed tasks on this date - streak continues
-          streak++;
-          currentDate.setDate(currentDate.getDate() - 1);
-        } else {
-          // No completed tasks on this day - streak ends
-          break;
-        }
+        if (!completedDates.has(toDateOnly(cursor))) break;
+        streak++;
+        cursor = addDays(cursor, -1);
       }
 
-      console.log(`🔍 Calculated streak: ${streak} days`);
       return streak;
     } catch (error: any) {
       console.error('Error calculating streak:', error);
@@ -1798,35 +1808,32 @@ export const streakAPI = {
     }
   },
 
-  // Update user's streak
-  updateStreak: async (userId: string, newStreak: number): Promise<void> => {
+  // Update a roster member's streak
+  updateStreak: async (staffId: string, newStreak: number): Promise<void> => {
     if (!isSupabaseConfigured()) {
       console.warn('Supabase not configured, skipping streak update');
       return;
     }
 
     try {
-      // Get current user data to check longest streak
-      const { data: userData, error: userError } = await supabase
-        .from('users')
+      const { data: staffData, error: staffError } = await supabase
+        .from('staff_profiles')
         .select('longest_streak')
-        .eq('id', userId)
+        .eq('id', staffId)
         .single();
 
-      if (userError) throw userError;
+      if (staffError) throw staffError;
 
-      const longestStreak = Math.max(userData?.longest_streak || 0, newStreak);
-      const lastClearBoardDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+      const longestStreak = Math.max(staffData?.longest_streak || 0, newStreak);
 
       const { error } = await supabase
-        .from('users')
+        .from('staff_profiles')
         .update({
           current_streak: newStreak,
           longest_streak: longestStreak,
-          last_clear_board_date: lastClearBoardDate,
-          updated_at: new Date().toISOString()
+          last_clear_board_date: toDateOnly(new Date()),
         })
-        .eq('id', userId);
+        .eq('id', staffId);
 
       if (error) throw error;
     } catch (error: any) {
@@ -1835,19 +1842,17 @@ export const streakAPI = {
     }
   },
 
-  // Check and update streak for a user
-  checkAndUpdateStreak: async (userId: string): Promise<number> => {
+  // Check and update streak for a roster member
+  checkAndUpdateStreak: async (staffId: string): Promise<number> => {
     try {
-      const hasUnfinishedTasks = await streakAPI.hasPendingOrOverdueTasks(userId, new Date());
-      
+      const hasUnfinishedTasks = await streakAPI.hasOverdueTasks(staffId);
+
       if (hasUnfinishedTasks) {
-        // User has unfinished tasks - reset streak
-        await streakAPI.updateStreak(userId, 0);
+        await streakAPI.updateStreak(staffId, 0);
         return 0;
       } else {
-        // User cleared the board - calculate new streak
-        const newStreak = await streakAPI.calculateCurrentStreak(userId);
-        await streakAPI.updateStreak(userId, newStreak);
+        const newStreak = await streakAPI.calculateCurrentStreak(staffId);
+        await streakAPI.updateStreak(staffId, newStreak);
         return newStreak;
       }
     } catch (error: any) {
@@ -1856,28 +1861,29 @@ export const streakAPI = {
     }
   },
 
-  // Get streak data for a user
-  getStreakData: async (userId: string): Promise<{ currentStreak: number; longestStreak: number; lastClearBoardDate?: Date }> => {
+  // Get streak data for a roster member
+  getStreakData: async (staffId: string): Promise<{ currentStreak: number; longestStreak: number; lastClearBoardDate?: Date }> => {
     if (!isSupabaseConfigured()) {
       console.warn('Supabase not configured, returning default streak data');
       return { currentStreak: 0, longestStreak: 0 };
     }
 
     try {
-      // Get current streak data from database
-      const { data: userData, error } = await supabase
-        .from('users')
+      const { data: staffData, error } = await supabase
+        .from('staff_profiles')
         .select('current_streak, longest_streak, last_clear_board_date')
-        .eq('id', userId)
-        .single();
+        .eq('id', staffId)
+        .maybeSingle();
 
       if (error) throw error;
 
-      const currentStreak = userData?.current_streak || 0;
-      const longestStreak = userData?.longest_streak || 0;
-      const lastClearBoardDate = userData?.last_clear_board_date ? new Date(userData.last_clear_board_date) : undefined;
-      
-      return { currentStreak, longestStreak, lastClearBoardDate };
+      return {
+        currentStreak: staffData?.current_streak || 0,
+        longestStreak: staffData?.longest_streak || 0,
+        lastClearBoardDate: staffData?.last_clear_board_date
+          ? parseDateOnly(staffData.last_clear_board_date)
+          : undefined,
+      };
     } catch (error: any) {
       console.error('Error getting streak data:', error);
       return { currentStreak: 0, longestStreak: 0 };

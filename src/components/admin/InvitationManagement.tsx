@@ -47,9 +47,11 @@ const InvitationManagement: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  // Invitations only provision branch logins. Staff are enrolled onto the
+  // roster and never receive one, because they never sign in.
   const [formData, setFormData] = useState<InvitationFormData>({
     email: '',
-    role: 'staff',
+    role: 'outlet',
     outletId: undefined,
   });
 
@@ -85,8 +87,8 @@ const InvitationManagement: React.FC = () => {
       return;
     }
 
-    if (formData.role === 'staff' && !formData.outletId) {
-      setError('Outlet is required for staff invitations');
+    if (!formData.outletId) {
+      setError('Choose which branch this login is for');
       return;
     }
 
@@ -99,12 +101,14 @@ const InvitationManagement: React.FC = () => {
         createdBy: user.id,
       });
 
-      setSuccess(`Invitation created! The user can now sign up at /staff-signup using their email: ${formData.email}`);
+      setSuccess(
+        `Invitation created. Send them this link: ${window.location.origin}/signup?token=${invitation.token}`
+      );
       
       // Reset form
       setFormData({
         email: '',
-        role: 'staff',
+        role: 'outlet',
         outletId: undefined,
       });
       setOpenDialog(false);
@@ -273,42 +277,24 @@ const InvitationManagement: React.FC = () => {
             />
 
             <FormControl fullWidth margin="normal">
-              <InputLabel>Role</InputLabel>
+              <InputLabel>Branch</InputLabel>
               <Select
-                value={formData.role}
-                onChange={(e) => setFormData({ 
-                  ...formData, 
-                  role: e.target.value as 'staff' | 'outlet',
-                  outletId: e.target.value === 'outlet' ? undefined : formData.outletId
-                })}
-                label="Role"
+                value={formData.outletId || ''}
+                onChange={(e) => setFormData({ ...formData, outletId: e.target.value })}
+                label="Branch"
+                required
               >
-                <MenuItem value="staff">Staff Member</MenuItem>
-                <MenuItem value="outlet">Outlet Manager</MenuItem>
+                {outlets.map((outlet) => (
+                  <MenuItem key={outlet.id} value={outlet.id}>
+                    {outlet.name}
+                  </MenuItem>
+                ))}
               </Select>
             </FormControl>
 
-            {formData.role === 'staff' && (
-              <FormControl fullWidth margin="normal">
-                <InputLabel>Outlet</InputLabel>
-                <Select
-                  value={formData.outletId || ''}
-                  onChange={(e) => setFormData({ ...formData, outletId: e.target.value })}
-                  label="Outlet"
-                  required
-                >
-                  {outlets.map((outlet) => (
-                    <MenuItem key={outlet.id} value={outlet.id}>
-                      {outlet.name}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            )}
-
             <Alert severity="info" sx={{ mt: 2 }}>
-              The user can now sign up at /staff-signup using their email address. 
-              The invitation will expire in 7 days.
+              You'll get a sign-up link to send them. They must use this same email
+              address. The invitation expires in 7 days.
             </Alert>
           </Box>
         </DialogContent>

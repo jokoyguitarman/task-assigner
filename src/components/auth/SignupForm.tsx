@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Box,
@@ -8,29 +8,32 @@ import {
   TextField,
   Button,
   Alert,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   CircularProgress,
   Divider,
 } from '@mui/material';
 import {
   Person as PersonIcon,
-  Business as BusinessIcon,
   Lock as LockIcon,
 } from '@mui/icons-material';
 import { supabase } from '../../lib/supabase';
-import { invitationsAPI, outletsAPI } from '../../services/supabaseService';
-import { Invitation, Outlet, SignupFormData } from '../../types';
+import { invitationsAPI, organizationsAPI } from '../../services/supabaseService';
+import { useAuth } from '../../contexts/AuthContext';
+import { PublicInvitation, SignupFormData } from '../../types';
 
+// Set when a branch signs up but has to confirm its email first, so the setup
+// screen can finish redeeming after they come back and sign in.
+export const PENDING_INVITATION_KEY = 'pendingInvitationToken';
+
+// Redeeming a branch invitation. This screen used to also create staff logins,
+// choosing the role from a dropdown and inserting the profile row itself; staff
+// have no logins now, and roles are decided server-side.
 const SignupForm: React.FC = () => {
   const navigate = useNavigate();
+  const { refreshIdentity } = useAuth();
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
 
-  const [invitation, setInvitation] = useState<Invitation | null>(null);
-  const [outlets, setOutlets] = useState<Outlet[]>([]);
+  const [invitation, setInvitation] = useState<PublicInvitation | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,37 +42,24 @@ const SignupForm: React.FC = () => {
     name: '',
     password: '',
     confirmPassword: '',
-    role: 'staff',
     outletId: undefined,
   });
 
-  useEffect(() => {
+  const loadInvitationData = useCallback(async () => {
     if (!token) {
       setError('Invalid invitation link. Please contact your administrator.');
       setLoading(false);
       return;
     }
 
-    loadInvitationData();
-  }, [token]);
-
-  const loadInvitationData = async () => {
     try {
       setLoading(true);
-      
-      console.log('🔍 Loading invitation data for token:', token);
-      
-      // Load invitation and outlets in parallel
-      const [invitationData, outletsData] = await Promise.all([
-        invitationsAPI.getByToken(token!),
-        outletsAPI.getAll(),
-      ]);
 
-      console.log('📧 Invitation data result:', invitationData);
-      console.log('🏢 Outlets data result:', outletsData);
+      // Read through an RPC: the invitations table itself is not readable
+      // before the invitee has an account.
+      const invitationData = await invitationsAPI.getByToken(token);
 
       if (!invitationData) {
-        console.log('❌ No invitation data found for token:', token);
         setError('Invalid or expired invitation link.');
         setLoading(false);
         return;
@@ -88,14 +78,11 @@ const SignupForm: React.FC = () => {
       }
 
       setInvitation(invitationData);
-      setOutlets(outletsData);
-      
-      // Pre-fill form with invitation data
+
       setFormData({
-        name: '',
+        name: invitationData.outletName || '',
         password: '',
         confirmPassword: '',
-        role: invitationData.role,
         outletId: invitationData.outletId,
       });
 
@@ -105,7 +92,11 @@ const SignupForm: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
+
+  useEffect(() => {
+    loadInvitationData();
+  }, [loadInvitationData]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -130,119 +121,42 @@ const SignupForm: React.FC = () => {
       return;
     }
 
-    if (formData.role === 'staff' && !formData.outletId) {
-      setError('Outlet is required for staff accounts');
-      return;
-    }
-
     try {
       setSubmitting(true);
       setError(null);
 
-      // Create the user account with Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
+      // Create the auth account. Everything that grants privilege - the profile
+      // row, the role, the organization, the link to the branch - is done by
+      // redeem_outlet_invitation below, which verifies server-side that this
+      // account's own email matches the invitation.
+      const { error: authError } = await supabase.auth.signUp({
         email: invitation.email,
         password: formData.password,
-        options: {
-          data: {
-            name: formData.name,
-            role: formData.role,
-          }
-        }
+        options: { data: { name: formData.name } },
       });
 
       if (authError) {
         throw new Error(authError.message);
       }
 
-      if (!authData.user) {
-        throw new Error('Failed to create user account');
+      const { data: sessionData } = await supabase.auth.getSession();
+
+      if (!sessionData.session) {
+        // Email confirmation is required, so there is no session to redeem with
+        // yet. Keep the token so the setup screen can finish once they sign in.
+        sessionStorage.setItem(PENDING_INVITATION_KEY, invitation.token);
+        alert('Account created. Please confirm your email, then sign in to finish joining.');
+        navigate('/login');
+        return;
       }
 
-      // Check if user already exists in public.users table
-      const { data: existingUser } = await supabase
-        .from('users')
-        .select('id')
-        .eq('id', authData.user.id)
-        .single();
+      await organizationsAPI.redeemOutletInvitation(invitation.token);
 
-      // Only create user record if it doesn't exist
-      if (!existingUser) {
-        const { error: userError } = await supabase
-          .from('users')
-          .insert({
-            id: authData.user.id,
-            email: invitation.email,
-            name: formData.name,
-            role: formData.role,
-          });
+      // The token was issued before the profile existed and carries no claims.
+      await supabase.auth.refreshSession();
+      await refreshIdentity();
 
-        if (userError) {
-          throw new Error(`Failed to create user profile: ${userError.message}`);
-        }
-      } else {
-        console.log('User already exists in public.users table, skipping creation');
-      }
-
-      // Create outlet or staff profile based on role
-      if (formData.role === 'outlet') {
-        // Check if outlet already exists
-        const { data: existingOutlet } = await supabase
-          .from('outlets')
-          .select('id')
-          .eq('user_id', authData.user.id)
-          .single();
-
-        if (!existingOutlet) {
-          const { error: outletError } = await supabase
-            .from('outlets')
-            .insert({
-              name: formData.name,
-              email: invitation.email,
-              user_id: authData.user.id,
-              is_active: true,
-            });
-
-          if (outletError) {
-            throw new Error(`Failed to create outlet profile: ${outletError.message}`);
-          }
-        } else {
-          console.log('Outlet already exists, skipping creation');
-        }
-      } else if (formData.role === 'staff' && formData.outletId) {
-        // Check if staff profile already exists
-        const { data: existingStaff } = await supabase
-          .from('staff_profiles')
-          .select('id')
-          .eq('user_id', authData.user.id)
-          .single();
-
-        if (!existingStaff) {
-          const { error: staffError } = await supabase
-            .from('staff_profiles')
-            .insert({
-              user_id: authData.user.id,
-              position_id: '1', // Default position - you might want to make this configurable
-              employee_id: `EMP-${Date.now()}`, // Generate a simple employee ID
-              hire_date: new Date().toISOString(),
-              is_active: true,
-            });
-
-          if (staffError) {
-            throw new Error(`Failed to create staff profile: ${staffError.message}`);
-          }
-        } else {
-          console.log('Staff profile already exists, skipping creation');
-        }
-      }
-
-      // Mark invitation as used
-      await invitationsAPI.markAsUsed(invitation.token);
-
-      // Show success message and redirect
-      setError(null);
-      alert('Account created successfully! Please check your email to verify your account, then you can log in.');
-      navigate('/login');
+      navigate('/dashboard');
 
     } catch (error) {
       console.error('Error creating account:', error);
@@ -289,10 +203,10 @@ const SignupForm: React.FC = () => {
         <CardContent sx={{ p: 4 }}>
           <Box textAlign="center" mb={3}>
             <Typography variant="h4" component="h1" gutterBottom>
-              Create Your Account
+              Create Your Branch Login
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              You've been invited to join as a {invitation?.role}
+              You've been invited to sign in for {invitation?.outletName || 'a branch'}
             </Typography>
           </Box>
 
@@ -351,46 +265,14 @@ const SignupForm: React.FC = () => {
               }}
             />
 
-            <FormControl fullWidth margin="normal">
-              <InputLabel>Role</InputLabel>
-              <Select
-                value={formData.role}
-                onChange={(e) => setFormData({ 
-                  ...formData, 
-                  role: e.target.value as 'staff' | 'outlet',
-                  outletId: e.target.value === 'outlet' ? undefined : formData.outletId
-                })}
-                label="Role"
-                disabled
-                startAdornment={
-                  formData.role === 'outlet' ? 
-                    <BusinessIcon sx={{ mr: 1, color: 'text.secondary' }} /> :
-                    <PersonIcon sx={{ mr: 1, color: 'text.secondary' }} />
-                }
-              >
-                <MenuItem value="staff">Staff Member</MenuItem>
-                <MenuItem value="outlet">Outlet Manager</MenuItem>
-              </Select>
-            </FormControl>
-
-            {formData.role === 'staff' && (
-              <FormControl fullWidth margin="normal">
-                <InputLabel>Outlet</InputLabel>
-                <Select
-                  value={formData.outletId || ''}
-                  onChange={(e) => setFormData({ ...formData, outletId: e.target.value })}
-                  label="Outlet"
-                  required
-                  disabled
-                >
-                  {outlets.map((outlet) => (
-                    <MenuItem key={outlet.id} value={outlet.id}>
-                      {outlet.name}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            )}
+            <TextField
+              fullWidth
+              label="Branch"
+              value={invitation?.outletName || ''}
+              margin="normal"
+              disabled
+              helperText="The branch this login will manage"
+            />
 
             <Button
               type="submit"

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box,
   Card,
@@ -22,8 +22,6 @@ import {
   Alert,
   Fade,
   Slide,
-  IconButton,
-  Tooltip,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -32,16 +30,12 @@ import {
   ListItem,
   ListItemText,
   ListItemIcon,
-  Divider,
 } from '@mui/material';
 import {
-  Download as DownloadIcon,
   PictureAsPdf as PdfIcon,
   TableChart as CsvIcon,
   Assessment as ReportIcon,
   FilterList as FilterIcon,
-  Refresh as RefreshIcon,
-  CalendarToday as CalendarIcon,
   Person as PersonIcon,
   CheckCircle as CheckCircleIcon,
   Pending as PendingIcon,
@@ -51,14 +45,12 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { exportService, TaskCompletionReport } from '../../services/exportService';
-import { assignmentsAPI, tasksAPI, usersAPI, staffProfilesAPI, outletsAPI } from '../../services/supabaseService';
-import { TaskAssignment, Task, User, StaffProfile, Outlet } from '../../types';
+import { assignmentsAPI, tasksAPI, staffProfilesAPI, outletsAPI } from '../../services/supabaseService';
+import { TaskAssignment, Task, StaffProfile, Outlet } from '../../types';
 
 const TaskCompletionReports: React.FC = () => {
-  const [reportData, setReportData] = useState<TaskCompletionReport[]>([]);
   const [assignments, setAssignments] = useState<TaskAssignment[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
   const [staffProfiles, setStaffProfiles] = useState<StaffProfile[]>([]);
   const [outlets, setOutlets] = useState<Outlet[]>([]);
   const [loading, setLoading] = useState(false);
@@ -82,30 +74,18 @@ const TaskCompletionReports: React.FC = () => {
   const [openPreview, setOpenPreview] = useState(false);
   const [previewData, setPreviewData] = useState<TaskCompletionReport[]>([]);
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  useEffect(() => {
-    if (assignments.length > 0) {
-      generateReport();
-    }
-  }, [assignments, dateRange, startDate, endDate, selectedStaff, selectedStatus, selectedLocation]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [assignmentsData, tasksData, usersData, staffProfilesData, outletsData] = await Promise.all([
+      const [assignmentsData, tasksData, staffProfilesData, outletsData] = await Promise.all([
         assignmentsAPI.getAll(),
         tasksAPI.getAll(),
-        usersAPI.getAll(),
         staffProfilesAPI.getAll(),
         outletsAPI.getAll(),
       ]);
       
       setAssignments(assignmentsData);
       setTasks(tasksData);
-      setUsers(usersData);
       setStaffProfiles(staffProfilesData);
       setOutlets(outletsData);
     } catch (err) {
@@ -113,7 +93,11 @@ const TaskCompletionReports: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   // Sorting functions
   const handleSort = (field: keyof TaskCompletionReport) => {
@@ -161,7 +145,7 @@ const TaskCompletionReports: React.FC = () => {
     });
   };
 
-  const generateReport = () => {
+  const reportData: TaskCompletionReport[] = useMemo(() => {
     try {
       let filteredAssignments = [...assignments];
 
@@ -180,18 +164,22 @@ const TaskCompletionReports: React.FC = () => {
           filterStartDate.setDate(now.getDate() - 7);
           filterEndDate = new Date(now);
           break;
-        case 'monthly':
-          filterStartDate = new Date(now.getFullYear(), now.getMonth(), 1);
-          filterEndDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-          break;
         case 'custom':
           filterStartDate = startDate;
           filterEndDate = endDate;
           break;
+        case 'monthly':
         default:
           filterStartDate = new Date(now.getFullYear(), now.getMonth(), 1);
           filterEndDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
       }
+
+      // Both bounds are calendar days. Leaving the end at midnight dropped
+      // everything assigned during the final day of the range.
+      filterStartDate = new Date(filterStartDate);
+      filterStartDate.setHours(0, 0, 0, 0);
+      filterEndDate = new Date(filterEndDate);
+      filterEndDate.setHours(23, 59, 59, 999);
 
       filteredAssignments = filteredAssignments.filter(assignment => {
         const assignmentDate = new Date(assignment.assignedDate);
@@ -214,16 +202,15 @@ const TaskCompletionReports: React.FC = () => {
       }
 
       // Transform to report format
-      const reportData: TaskCompletionReport[] = filteredAssignments.map(assignment => {
+      return filteredAssignments.map(assignment => {
         const task = tasks.find(t => t.id === assignment.taskId);
         const staffProfile = staffProfiles.find(sp => sp.id === assignment.staffId);
-        const user = staffProfile ? users.find(u => u.id === staffProfile.userId) : null;
         const outlet = outlets.find(o => o.id === assignment.outletId);
         
         return {
           taskId: assignment.id,
           taskName: task?.title || 'Unknown Task',
-          assignedTo: user?.name || staffProfile?.user?.name || 'Unknown User',
+          assignedTo: staffProfile?.name || 'Unassigned',
           location: outlet?.name || 'Unknown Location',
           assignedAt: assignment.assignedDate.toISOString(),
           dueDate: assignment.dueDate.toISOString(),
@@ -232,12 +219,22 @@ const TaskCompletionReports: React.FC = () => {
           proofFiles: assignment.completionProof ? [assignment.completionProof] : [],
         };
       });
-
-      setReportData(reportData);
     } catch (err) {
-      setError('Failed to generate report');
+      console.error('Failed to generate report', err);
+      return [];
     }
-  };
+  }, [
+    assignments,
+    tasks,
+    staffProfiles,
+    outlets,
+    dateRange,
+    startDate,
+    endDate,
+    selectedStaff,
+    selectedStatus,
+    selectedLocation,
+  ]);
 
   const handleExportPDF = async () => {
     try {
@@ -438,7 +435,7 @@ const TaskCompletionReports: React.FC = () => {
                       <MenuItem value="all">All Staff</MenuItem>
                       {staffProfiles.map(staffProfile => (
                         <MenuItem key={staffProfile.id} value={staffProfile.id}>
-                          {staffProfile.user?.name || staffProfile.employeeId}
+                          {staffProfile.name || staffProfile.employeeId}
                         </MenuItem>
                       ))}
                     </Select>

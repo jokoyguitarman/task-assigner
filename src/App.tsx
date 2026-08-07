@@ -6,17 +6,15 @@ import { QueryClient, QueryClientProvider } from 'react-query';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import AppLayout from './components/layout/AppLayout';
 import LoginForm from './components/auth/LoginForm';
-import AdminSignup from './components/auth/AdminSignup';
 import SignupForm from './components/auth/SignupForm';
-import StaffOutletAuth from './components/auth/StaffOutletAuth';
 import RestaurantSignup from './components/auth/RestaurantSignup';
+import AccountSetup from './components/auth/AccountSetup';
 import AdminDashboard from './components/admin/Dashboard';
 import TaskList from './components/admin/TaskList';
 import AssignmentList from './components/admin/AssignmentList';
 import OutletManagement from './components/admin/OutletManagement';
 import StaffEnrollment from './components/admin/StaffEnrollment';
 import MonthlyScheduler from './components/admin/MonthlyScheduler';
-import StaffAccountCreation from './components/admin/StaffAccountCreation';
 import TaskCompletionReports from './components/admin/TaskCompletionReports';
 import InvitationManagement from './components/admin/InvitationManagement';
 import StaffDashboard from './components/staff/StaffDashboard';
@@ -163,40 +161,40 @@ const theme = createTheme({
 const queryClient = new QueryClient();
 
 // Protected Route Component
-const ProtectedRoute: React.FC<{ children: React.ReactNode; requiredRole?: 'admin' | 'staff' }> = ({ 
+const ProtectedRoute: React.FC<{ children: React.ReactNode; requiredRole?: 'admin' | 'outlet' }> = ({ 
   children, 
   requiredRole 
 }) => {
-  const { user, isLoading } = useAuth();
-
-  console.log('🛡️ ProtectedRoute - isLoading:', isLoading, 'user:', user?.id);
+  const { user, isLoading, needsSetup } = useAuth();
 
   if (isLoading) {
-    console.log('🛡️ ProtectedRoute - Showing loading screen');
     return <div>Loading...</div>;
   }
 
+  // Signed in but not yet a principal of any organization. The token carries no
+  // claims, so every query would come back empty; send them to finish setup
+  // rather than render a dashboard that only looks broken.
+  if (needsSetup) {
+    return <Navigate to="/setup" replace />;
+  }
+
   if (!user) {
-    console.log('🛡️ ProtectedRoute - No user, redirecting to login');
     return <Navigate to="/login" replace />;
   }
 
   if (requiredRole && user.role !== requiredRole) {
-    console.log('🛡️ ProtectedRoute - Wrong role, redirecting to dashboard');
     return <Navigate to="/dashboard" replace />;
   }
 
-  console.log('🛡️ ProtectedRoute - Rendering AppLayout');
   return <AppLayout>{children}</AppLayout>;
 };
 
-// Admin Routes Component  
+// Owner routes: the whole organization.
 const AdminRoutes: React.FC = () => (
   <Routes>
     <Route path="/dashboard" element={<AdminDashboard />} />
     <Route path="/tasks" element={<TaskList />} />
     <Route path="/staff" element={<StaffEnrollment />} />
-    <Route path="/staff-accounts" element={<StaffAccountCreation />} />
     <Route path="/outlets" element={<OutletManagement />} />
     <Route path="/scheduler" element={<MonthlyScheduler />} />
     <Route path="/assignments" element={<AssignmentList />} />
@@ -206,8 +204,8 @@ const AdminRoutes: React.FC = () => (
   </Routes>
 );
 
-// Staff Routes Component
-const StaffRoutes: React.FC = () => (
+// Branch routes: what the shared store phone sees.
+const OutletRoutes: React.FC = () => (
   <Routes>
     <Route path="/dashboard" element={<StaffDashboard />} />
     <Route path="/schedules" element={<TeamScheduler />} />
@@ -219,23 +217,20 @@ const StaffRoutes: React.FC = () => (
 
 // Main App Routes Component
 const AppRoutes: React.FC = () => {
-  const { user, isLoading } = useAuth();
-
-  console.log('🛣️ AppRoutes - isLoading:', isLoading, 'user:', user?.id, 'role:', user?.role);
+  const { user } = useAuth();
 
   return (
     <Routes>
       <Route path="/login" element={<LoginForm />} />
-      <Route path="/admin-signup" element={<AdminSignup />} />
       <Route path="/signup" element={<SignupForm />} />
-      <Route path="/staff-signup" element={<StaffOutletAuth />} />
       <Route path="/restaurant-signup" element={<RestaurantSignup />} />
+      <Route path="/setup" element={<AccountSetup />} />
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route 
         path="/*" 
         element={
           <ProtectedRoute>
-            {user?.role === 'admin' ? <AdminRoutes /> : <StaffRoutes />}
+            {user?.role === 'admin' ? <AdminRoutes /> : <OutletRoutes />}
           </ProtectedRoute>
         } 
       />

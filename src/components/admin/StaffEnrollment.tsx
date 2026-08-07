@@ -27,8 +27,6 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  FormControlLabel,
-  Switch,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -41,7 +39,7 @@ import {
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
-import { staffProfilesAPI, staffPositionsAPI, outletsAPI, usersAPI } from '../../services/supabaseService';
+import { staffProfilesAPI, staffPositionsAPI, outletsAPI } from '../../services/supabaseService';
 import { StaffProfile, StaffPosition, Outlet, StaffEnrollmentFormData } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -56,17 +54,24 @@ const StaffEnrollment: React.FC = () => {
   const [showCustomPosition, setShowCustomPosition] = useState(false);
   const [formData, setFormData] = useState<StaffEnrollmentFormData>({
     name: '',
-    email: '',
-    phone: '',
     positionId: '',
     customPositionName: '',
     customPositionDescription: '',
     employeeId: '',
     hireDate: new Date(),
-    username: '',
-    password: '',
+    outletId: '',
   });
   const [error, setError] = useState<string | null>(null);
+
+  const emptyForm = (): StaffEnrollmentFormData => ({
+    name: '',
+    positionId: '',
+    customPositionName: '',
+    customPositionDescription: '',
+    employeeId: '',
+    hireDate: new Date(),
+    outletId: '',
+  });
 
   useEffect(() => {
     loadData();
@@ -94,31 +99,17 @@ const StaffEnrollment: React.FC = () => {
     if (staff) {
       setEditingStaff(staff);
       setFormData({
-        name: staff.user?.name || '',
-        email: staff.user?.email || '',
-        phone: '',
+        name: staff.name,
         positionId: staff.positionId,
         customPositionName: '',
         customPositionDescription: '',
         employeeId: staff.employeeId,
         hireDate: staff.hireDate,
-        username: staff.username || '',
-        password: staff.password || '',
+        outletId: staff.outletId || '',
       });
     } else {
       setEditingStaff(null);
-      setFormData({
-        name: '',
-        email: '',
-        phone: '',
-        positionId: '',
-        customPositionName: '',
-        customPositionDescription: '',
-        employeeId: '',
-        hireDate: new Date(),
-        username: '',
-        password: '',
-      });
+      setFormData(emptyForm());
     }
     setShowCustomPosition(false);
     setError(null);
@@ -129,18 +120,7 @@ const StaffEnrollment: React.FC = () => {
     setOpenDialog(false);
     setEditingStaff(null);
     setShowCustomPosition(false);
-    setFormData({
-      name: '',
-      email: '',
-      phone: '',
-      positionId: '',
-      customPositionName: '',
-      customPositionDescription: '',
-      employeeId: '',
-      hireDate: new Date(),
-      username: '',
-      password: '',
-    });
+    setFormData(emptyForm());
     setError(null);
   };
 
@@ -169,49 +149,38 @@ const StaffEnrollment: React.FC = () => {
       const employeeId = formData.employeeId || `EMP${String(staffProfiles.length + 1).padStart(3, '0')}`;
 
       if (editingStaff) {
-        // Update existing staff
         await staffProfilesAPI.update(editingStaff.id, {
+          name: formData.name.trim(),
           positionId: formData.positionId,
           employeeId,
           hireDate: formData.hireDate,
+          outletId: formData.outletId || undefined,
         });
       } else {
-        // Create new staff - first create user, then staff profile
-        try {
-          // Create user first
-          const newUser = await usersAPI.create({
-            email: formData.email || `${employeeId}@company.com`, // Use employee ID if no email
-            name: formData.name,
-            role: 'staff',
-            organizationId: user!.organizationId,
-            currentStreak: 0,
-            longestStreak: 0,
-          });
-
-          // Then create staff profile
-          await staffProfilesAPI.create({
-            userId: newUser.id,
-            positionId: formData.positionId,
-            employeeId,
-            hireDate: formData.hireDate,
-            organizationId: user!.organizationId,
-            isActive: true,
-          });
-        } catch (error) {
-          console.error('Error creating staff member:', error);
-          throw error;
-        }
+        // Enrolling a staff member adds a row to the roster. It no longer
+        // creates a login, an auth account or a placeholder email address: staff
+        // work from the branch's shared phone, so there is nothing to sign in to.
+        await staffProfilesAPI.create({
+          name: formData.name.trim(),
+          positionId: formData.positionId,
+          employeeId,
+          hireDate: formData.hireDate,
+          outletId: formData.outletId || undefined,
+          organizationId: user!.organizationId,
+          isActive: true,
+        });
       }
 
       await loadData();
       handleCloseDialog();
     } catch (err) {
-      setError('Failed to save staff member');
+      console.error('Error saving staff member:', err);
+      setError(err instanceof Error ? err.message : 'Failed to save staff member');
     }
   };
 
   const handleDelete = async (staff: StaffProfile) => {
-    if (window.confirm(`Are you sure you want to deactivate "${staff.user?.name}"?`)) {
+    if (window.confirm(`Are you sure you want to deactivate "${staff.name}"?`)) {
       try {
         await staffProfilesAPI.delete(staff.id);
         await loadData();
@@ -338,10 +307,10 @@ const StaffEnrollment: React.FC = () => {
                                 <PersonIcon sx={{ mr: 1, color: 'primary.main' }} />
                                 <Box>
                                   <Typography variant="subtitle2" fontWeight="bold">
-                                    {staff.user?.name}
+                                    {staff.name}
                                   </Typography>
                                   <Typography variant="body2" color="text.secondary">
-                                    {staff.user?.email}
+                                    {staff.outlet?.name || 'No branch assigned'}
                                   </Typography>
                                 </Box>
                               </Box>
@@ -419,23 +388,21 @@ const StaffEnrollment: React.FC = () => {
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Email (Optional)"
-                  type="email"
-                  value={formData.email}
-                  onChange={handleInputChange('email')}
-                  variant="outlined"
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Phone (Optional)"
-                  value={formData.phone}
-                  onChange={handleInputChange('phone')}
-                  variant="outlined"
-                />
+                <FormControl fullWidth>
+                  <InputLabel>Branch</InputLabel>
+                  <Select
+                    value={formData.outletId || ''}
+                    onChange={handleInputChange('outletId')}
+                    label="Branch"
+                  >
+                    <MenuItem value="">Not assigned to a branch</MenuItem>
+                    {outlets.map((outlet) => (
+                      <MenuItem key={outlet.id} value={outlet.id}>
+                        {outlet.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
               </Grid>
               <Grid item xs={12} sm={6}>
                 <TextField

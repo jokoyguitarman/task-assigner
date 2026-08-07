@@ -66,8 +66,8 @@ class NotificationService {
             }
           }
         } else {
-          // New assignment - notify staff member who was assigned
-          if (this.currentUserRole === 'staff' || this.currentUserRole === 'outlet') {
+          // New assignment - notify the branch it landed on
+          if (this.currentUserRole === 'outlet') {
             this.triggerNotification({
               id: `task_assigned_${assignmentId}_${Date.now()}`,
               type: 'task_assigned',

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Card,
@@ -27,16 +27,15 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { useForm, Controller } from 'react-hook-form';
 import { AssignmentFormData, Task, StaffProfile, Outlet } from '../../types';
+import { toDateOnly } from '../../lib/dates';
 import { 
   tasksAPI, 
-  usersAPI, 
   assignmentsAPI, 
   staffProfilesAPI, 
   outletsAPI, 
   monthlySchedulesAPI 
 } from '../../services/supabaseService';
 import { useAuth } from '../../contexts/AuthContext';
-import { realtimeService } from '../../services/realtimeService';
 
 interface AssignmentFormProps {
   assignmentId?: string;
@@ -70,115 +69,105 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
   const selectedOutletId = watch('outletId');
   const selectedDueTime = watch('dueTime');
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  // Load assignment data when editing
-  useEffect(() => {
-    if (assignmentId) {
-      loadAssignmentData();
-    }
-  }, [assignmentId]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
-        const [tasksData, staffProfilesData, outletsData] = await Promise.all([
-          tasksAPI.getAll(),
-          staffProfilesAPI.getAll(),
-          outletsAPI.getAll(),
-        ]);
+      const [tasksData, staffProfilesData, outletsData] = await Promise.all([
+        tasksAPI.getAll(),
+        staffProfilesAPI.getAll(),
+        outletsAPI.getAll(),
+      ]);
       setTasks(tasksData);
       setStaffProfiles(staffProfilesData);
       setOutlets(outletsData);
-      
-      console.log('📊 Assignment Form Data Loaded:');
-      console.log('Tasks:', tasksData.length, tasksData);
-      console.log('Staff Profiles:', staffProfilesData.length, staffProfilesData);
-      console.log('Outlets:', outletsData.length, outletsData);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
       setLoadingData(false);
     }
-  };
+  }, []);
 
-  const loadAssignmentData = async () => {
+  const loadAssignmentData = useCallback(async () => {
     if (!assignmentId) return;
-    
+
     try {
       setLoading(true);
       const assignment = await assignmentsAPI.getById(assignmentId);
-      
-      // Reset form with assignment data
+
       reset({
         taskId: assignment.taskId,
         staffId: assignment.staffId || '',
         dueDate: new Date(assignment.dueDate),
-        dueTime: '', // dueTime is not stored in TaskAssignment, so we'll leave it empty
+        dueTime: assignment.dueTime || '',
         outletId: assignment.outletId || '',
       });
-      
-      console.log('📝 Assignment data loaded for editing:', assignment);
     } catch (error) {
       console.error('Error loading assignment data:', error);
       setError('Failed to load assignment data');
     } finally {
       setLoading(false);
     }
-  };
+  }, [assignmentId, reset]);
 
-  // Check staff availability for smart assignment
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  useEffect(() => {
+    loadAssignmentData();
+  }, [loadAssignmentData]);
+
+  // Who is rostered at that outlet, on that day, across that hour. One query for
+  // the whole month rather than one per staff member — this used to issue a
+  // request per person and await them one at a time.
+  const checkStaffAvailability = useCallback(async () => {
+    if (!selectedDueDate || !selectedOutletId || !selectedDueTime) return;
+
+    try {
+      const schedules = await monthlySchedulesAPI.getByMonth(
+        selectedDueDate.getMonth() + 1,
+        selectedDueDate.getFullYear()
+      );
+
+      const day = toDateOnly(selectedDueDate);
+      // Postgres hands back HH:MM:SS while the form produces HH:MM, and these
+      // are compared as strings.
+      const hhmm = (time: string) => time.slice(0, 5);
+      const dueAt = hhmm(selectedDueTime);
+      const onShift = new Set<string>();
+
+      schedules.forEach(schedule => {
+        const daily = schedule.dailySchedules?.find(ds => toDateOnly(ds.scheduleDate) === day);
+        if (!daily || daily.isDayOff) return;
+        if (daily.outletId !== selectedOutletId) return;
+        if (!daily.timeIn || !daily.timeOut) return;
+        if (dueAt < hhmm(daily.timeIn) || dueAt > hhmm(daily.timeOut)) return;
+
+        onShift.add(schedule.staffId);
+      });
+
+      setAvailableStaff(staffProfiles.filter(staff => onShift.has(staff.id)));
+    } catch (error) {
+      console.error('Error checking staff availability:', error);
+      // Show everyone rather than an empty list: an unanswered question is not
+      // the same as "nobody is available".
+      setAvailableStaff(staffProfiles);
+    }
+  }, [selectedDueDate, selectedOutletId, selectedDueTime, staffProfiles]);
+
   useEffect(() => {
     if (smartAssignment && selectedDueDate && selectedOutletId && selectedDueTime) {
       checkStaffAvailability();
     } else {
       setAvailableStaff(staffProfiles);
     }
-  }, [selectedDueDate, selectedOutletId, selectedDueTime, smartAssignment, staffProfiles]);
-
-  const checkStaffAvailability = async () => {
-    if (!selectedDueDate || !selectedOutletId || !selectedDueTime) return;
-
-    const month = selectedDueDate.getMonth() + 1;
-    const year = selectedDueDate.getFullYear();
-    
-    const availableStaffList: StaffProfile[] = [];
-
-    for (const staffProfile of staffProfiles) {
-      try {
-        const monthlySchedules = await monthlySchedulesAPI.getByStaff(staffProfile.id);
-        const monthlySchedule = monthlySchedules.find(ms => ms.month === month && ms.year === year);
-        
-        if (monthlySchedule) {
-          const dailySchedule = monthlySchedule.dailySchedules?.find(ds => 
-            new Date(ds.scheduleDate).toDateString() === selectedDueDate.toDateString()
-          );
-
-          if (dailySchedule) {
-            // Check if staff is available
-            if (!dailySchedule.isDayOff && 
-                dailySchedule.outletId === selectedOutletId &&
-                dailySchedule.timeIn && 
-                dailySchedule.timeOut) {
-              
-              const scheduleStart = new Date(`${selectedDueDate.toDateString()} ${dailySchedule.timeIn}`);
-              const scheduleEnd = new Date(`${selectedDueDate.toDateString()} ${dailySchedule.timeOut}`);
-              const taskTime = new Date(`${selectedDueDate.toDateString()} ${selectedDueTime}`);
-              
-              if (taskTime >= scheduleStart && taskTime <= scheduleEnd) {
-                availableStaffList.push(staffProfile);
-              }
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error checking availability for staff:', staffProfile.id, error);
-      }
-    }
-
-    setAvailableStaff(availableStaffList);
-  };
+  }, [
+    smartAssignment,
+    selectedDueDate,
+    selectedOutletId,
+    selectedDueTime,
+    staffProfiles,
+    checkStaffAvailability,
+  ]);
 
   const getStaffAvailabilityStatus = (staffProfile: StaffProfile) => {
     if (!smartAssignment || !selectedDueDate || !selectedOutletId || !selectedDueTime) {
@@ -195,48 +184,35 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
   };
 
   const onSubmit = async (data: AssignmentFormData) => {
-    console.log('🔄 AssignmentForm onSubmit called with data:', data);
-    console.log('🔄 AssignmentId:', assignmentId);
-    console.log('🔄 SelectedOutletId:', selectedOutletId);
-    console.log('🔄 Form errors:', errors);
-    console.log('🔄 User organizationId:', user?.organizationId);
-    
     setLoading(true);
     setError(null);
-    
+
     try {
-      // Clean up empty strings to undefined for UUID fields
+      // Empty strings are not valid UUIDs or times; send nothing instead.
       const cleanedData = {
         ...data,
-        staffId: data.staffId && data.staffId.trim() !== '' ? data.staffId : undefined,
-        outletId: data.outletId && data.outletId.trim() !== '' ? data.outletId : undefined,
+        staffId: data.staffId?.trim() || undefined,
+        outletId: data.outletId?.trim() || undefined,
+        dueTime: data.dueTime?.trim() || undefined,
       };
-      
-      console.log('🔄 Cleaned data:', cleanedData);
-      
+
       if (assignmentId) {
-        console.log('📝 Updating existing assignment...');
         await assignmentsAPI.update(assignmentId, cleanedData);
-        console.log('✅ Assignment updated successfully');
       } else {
-        console.log('📝 Creating new assignment...');
-        const newAssignment = await assignmentsAPI.create({
+        await assignmentsAPI.create({
           taskId: cleanedData.taskId,
           staffId: cleanedData.staffId,
           assignedDate: new Date(),
           dueDate: cleanedData.dueDate,
+          dueTime: cleanedData.dueTime,
           outletId: cleanedData.outletId,
           organizationId: user!.organizationId,
           status: 'pending',
         });
-        console.log('✅ Assignment created successfully');
-        
-        // Realtime subscription will automatically handle notifications
-        // No need to manually trigger notifications here
       }
       onSuccess();
     } catch (error) {
-      console.error('❌ Error saving assignment:', error);
+      console.error('Error saving assignment:', error);
       setError(error instanceof Error ? error.message : 'Failed to save assignment');
     } finally {
       setLoading(false);
@@ -380,7 +356,7 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
                     <Autocomplete
                       {...field}
                       options={staffProfiles}
-                      getOptionLabel={(option) => option.user?.name || ''}
+                      getOptionLabel={(option) => option.name || ''}
                       value={staffProfiles.find(staff => staff.id === field.value) || null}
                       onChange={(_, newValue) => {
                         field.onChange(newValue?.id || '');
@@ -401,7 +377,7 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
                             <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
                               <Box sx={{ flex: 1 }}>
                                 <Typography variant="subtitle2">
-                                  {option.user?.name}
+                                  {option.name}
                                 </Typography>
                                 <Typography variant="caption" color="text.secondary">
                                   {option.position?.name} • {option.employeeId}
