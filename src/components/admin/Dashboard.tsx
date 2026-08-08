@@ -46,6 +46,7 @@ import {
 import { assignmentsAPI, tasksAPI, staffProfilesAPI, outletsAPI } from '../../services/supabaseService';
 import Leaderboard from './Leaderboard';
 import AssignmentForm from './AssignmentForm';
+import RescheduleRequests from './RescheduleRequests';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { realtimeService } from '../../services/realtimeService';
 
@@ -252,6 +253,13 @@ const AdminDashboard: React.FC = () => {
         </Box>
       </Fade>
 
+
+      <RescheduleRequests
+        assignments={assignments}
+        tasks={tasks}
+        staffProfiles={staffProfiles}
+        onResolved={loadData}
+      />
 
       <Grid container spacing={2}>
         {/* Stats Cards */}
