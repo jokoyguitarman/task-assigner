@@ -21,8 +21,6 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  IconButton,
-  Tooltip,
   Alert,
   Autocomplete,
   TextField,
@@ -38,7 +36,6 @@ import {
   AccessTime,
   TaskAlt,
   TrendingUp,
-  Visibility,
   LocationOn,
   PersonAdd,
   PriorityHigh,
@@ -51,6 +48,7 @@ import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { realtimeService } from '../../services/realtimeService';
 import ToastNotification from '../common/ToastNotification';
 import RescheduleRequestDialog from './RescheduleRequestDialog';
+import AreaChecklists from './AreaChecklists';
 
 const StaffDashboard: React.FC = () => {
   const { user, currentOutlet, isOutletUser } = useAuth();
@@ -977,326 +975,14 @@ const StaffDashboard: React.FC = () => {
                   </Box>
                 </Box>
                 
-                {(pendingAssignments.length + overdueAssignments.length) > 0 ? (
-                  <List sx={{ p: 0 }}>
-                    {/* Show overdue tasks first */}
-                    {overdueAssignments.map((assignment, index) => (
-                      <Fade in timeout={1800 + index * 200} key={`overdue-${assignment.id}`}>
-                        <Paper
-                          elevation={0}
-                          sx={{
-                            p: 2,
-                            mb: 2,
-                            borderRadius: 2,
-                            border: '2px solid #ef4444',
-                            backgroundColor: '#fef2f2',
-                            transition: 'all 0.2s ease',
-                            cursor: 'pointer',
-                            '&:hover': {
-                              borderColor: '#dc2626',
-                              transform: 'translateY(-1px)',
-                              boxShadow: '0 4px 12px rgba(239, 68, 68, 0.25)',
-                            },
-                          }}
-                          onClick={() => handleViewAssignment(assignment)}
-                        >
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                            <Avatar sx={{ bgcolor: 'error.main', width: 48, height: 48 }}>
-                              <Warning sx={{ fontSize: 24 }} />
-                            </Avatar>
-                            <Box sx={{ flex: 1 }}>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                                <Typography variant="subtitle1" fontWeight={600}>
-                                  {getTaskTitle(assignment.taskId)}
-                                </Typography>
-                                <Chip
-                                  label="OVERDUE"
-                                  size="small"
-                                  color="error"
-                                  sx={{ fontWeight: 600, fontSize: '0.75rem' }}
-                                />
-                                {getTaskPriority(assignment.taskId) && (
-                                  <Chip
-                                    icon={<PriorityHigh />}
-                                    label="HIGH PRIORITY"
-                                    size="small"
-                                    color="warning"
-                                    sx={{ fontWeight: 600, fontSize: '0.75rem' }}
-                                  />
-                                )}
-                              </Box>
-                              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1, flexWrap: 'wrap' }}>
-                                <Chip
-                                  icon={<Schedule />}
-                                  label={`Due: ${new Date(assignment.dueDate).toLocaleDateString()}`}
-                                  size="small"
-                                  variant="outlined"
-                                  color="error"
-                                />
-                                <Chip
-                                  icon={<AccessTime />}
-                                  label={`${getTaskEstimatedTime(assignment.taskId)} min`}
-                                  size="small"
-                                  variant="outlined"
-                                  color="info"
-                                />
-                                <Chip
-                                  icon={<LocationOn />}
-                                  label={getOutletName(assignment)}
-                                  size="small"
-                                  variant="outlined"
-                                  color="default"
-                                />
-                                <Chip
-                                  icon={<PersonAdd />}
-                                  label={`Assigned by: ${getAssignedBy(assignment)}`}
-                                  size="small"
-                                  variant="outlined"
-                                  color="default"
-                                />
-                                <Chip
-                                  icon={<Person />}
-                                  label={assignment.staffId ? `Assigned to: ${getAssignedTo(assignment)}` : 'Unassigned'}
-                                  size="small"
-                                  variant="outlined"
-                                  color={assignment.staffId ? 'success' : 'warning'}
-                                />
-                              </Box>
-                            </Box>
-                            <Box sx={{ display: 'flex', gap: 1 }}>
-                              <Tooltip title="View Details">
-                                <IconButton
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleViewAssignment(assignment);
-                                  }}
-                                  sx={{ color: 'error.main' }}
-                                >
-                                  <Visibility />
-                                </IconButton>
-                              </Tooltip>
-                              <Tooltip title="Request Reschedule">
-                                <IconButton
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleRequestReschedule(assignment);
-                                  }}
-                                  sx={{ color: 'warning.main' }}
-                                >
-                                  <Schedule />
-                                </IconButton>
-                              </Tooltip>
-                              {assignment.staffId ? (
-                                <Button
-                                  variant="contained"
-                                  startIcon={<CameraAlt />}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    window.location.href = `/tasks/${assignment.id}/complete`;
-                                  }}
-                                  sx={{
-                                    borderRadius: 2,
-                                    px: 3,
-                                    py: 1,
-                                    background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
-                                    '&:hover': {
-                                      background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
-                                    },
-                                  }}
-                                >
-                                  Complete Now
-                                </Button>
-                              ) : (
-                                <Button
-                                  variant="outlined"
-                                  startIcon={<Person />}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleTakeTask(assignment.id);
-                                  }}
-                                  sx={{
-                                    borderRadius: 2,
-                                    px: 3,
-                                    py: 1,
-                                    borderColor: '#ef4444',
-                                    color: '#ef4444',
-                                    '&:hover': {
-                                      borderColor: '#dc2626',
-                                      backgroundColor: 'rgba(239, 68, 68, 0.04)',
-                                    },
-                                  }}
-                                >
-                                  Assign to Team
-                                </Button>
-                              )}
-                            </Box>
-                          </Box>
-                        </Paper>
-                      </Fade>
-                    ))}
-                    
-                    {/* Then show pending tasks */}
-                    {pendingAssignments.map((assignment, index) => (
-                      <Fade in timeout={1800 + (overdueAssignments.length + index) * 200} key={`pending-${assignment.id}`}>
-                        <Paper
-                          elevation={0}
-                          sx={{
-                            p: 2,
-                            mb: 2,
-                            borderRadius: 2,
-                            border: '1px solid #e2e8f0',
-                            transition: 'all 0.2s ease',
-                            cursor: 'pointer',
-                            '&:hover': {
-                              borderColor: '#ec4899',
-                              transform: 'translateY(-1px)',
-                              boxShadow: '0 4px 12px rgba(236, 72, 153, 0.15)',
-                            },
-                          }}
-                          onClick={() => handleViewAssignment(assignment)}
-                        >
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                            <Avatar sx={{ bgcolor: 'secondary.main', width: 48, height: 48 }}>
-                              <Assignment sx={{ fontSize: 24 }} />
-                            </Avatar>
-                            <Box sx={{ flex: 1 }}>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                                <Typography variant="subtitle1" fontWeight={600}>
-                                {getTaskTitle(assignment.taskId)}
-                              </Typography>
-                                {getTaskPriority(assignment.taskId) && (
-                                  <Chip
-                                    icon={<PriorityHigh />}
-                                    label="HIGH PRIORITY"
-                                    size="small"
-                                    color="warning"
-                                    sx={{ fontWeight: 600, fontSize: '0.75rem' }}
-                                  />
-                                )}
-                              </Box>
-                              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1, flexWrap: 'wrap' }}>
-                                <Chip
-                                  icon={<Schedule />}
-                                  label={`Due: ${new Date(assignment.dueDate).toLocaleDateString()}`}
-                                  size="small"
-                                  variant="outlined"
-                                  color="default"
-                                />
-                                <Chip
-                                  icon={<AccessTime />}
-                                  label={`${getTaskEstimatedTime(assignment.taskId)} min`}
-                                  size="small"
-                                  variant="outlined"
-                                  color="info"
-                                />
-                                <Chip
-                                  icon={<LocationOn />}
-                                  label={getOutletName(assignment)}
-                                  size="small"
-                                  variant="outlined"
-                                  color="default"
-                                />
-                                <Chip
-                                  icon={<PersonAdd />}
-                                  label={`Assigned by: ${getAssignedBy(assignment)}`}
-                                  size="small"
-                                  variant="outlined"
-                                  color="default"
-                                />
-                                <Chip
-                                  icon={<Person />}
-                                  label={assignment.staffId ? `Assigned to: ${getAssignedTo(assignment)}` : 'Unassigned'}
-                                  size="small"
-                                  variant="outlined"
-                                  color={assignment.staffId ? 'success' : 'warning'}
-                                />
-                              </Box>
-                            </Box>
-                            <Box sx={{ display: 'flex', gap: 1 }}>
-                              <Tooltip title="View Details">
-                                <IconButton
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleViewAssignment(assignment);
-                                  }}
-                                  sx={{ color: 'primary.main' }}
-                                >
-                                  <Visibility />
-                                </IconButton>
-                              </Tooltip>
-                              <Tooltip title="Request Reschedule">
-                                <IconButton
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleRequestReschedule(assignment);
-                                  }}
-                                  sx={{ color: 'warning.main' }}
-                                >
-                                  <Schedule />
-                                </IconButton>
-                              </Tooltip>
-                            {assignment.staffId ? (
-                            <Button
-                              variant="contained"
-                              startIcon={<CameraAlt />}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                window.location.href = `/tasks/${assignment.id}/complete`;
-                              }}
-                              sx={{
-                                borderRadius: 2,
-                                px: 3,
-                                py: 1,
-                                background: 'linear-gradient(135deg, #ec4899 0%, #be185d 100%)',
-                                '&:hover': {
-                                  background: 'linear-gradient(135deg, #db2777 0%, #9d174d 100%)',
-                                },
-                              }}
-                            >
-                              Complete
-                            </Button>
-                            ) : (
-                              <Button
-                                variant="outlined"
-                                startIcon={<Person />}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleTakeTask(assignment.id);
-                                }}
-                                sx={{
-                                  borderRadius: 2,
-                                  px: 3,
-                                  py: 1,
-                                  borderColor: '#ec4899',
-                                  color: '#ec4899',
-                                  '&:hover': {
-                                    borderColor: '#db2777',
-                                    backgroundColor: 'rgba(236, 72, 153, 0.04)',
-                                  },
-                                }}
-                              >
-                                Assign to Team
-                              </Button>
-                            )}
-                            </Box>
-                          </Box>
-                        </Paper>
-                      </Fade>
-                    ))}
-                  </List>
-                ) : (
-                  <Box sx={{ textAlign: 'center', py: 6 }}>
-                    <Avatar sx={{ bgcolor: 'success.main', width: 80, height: 80, mx: 'auto', mb: 3 }}>
-                      <CheckCircle sx={{ fontSize: 40 }} />
-                    </Avatar>
-                    <Typography variant="h5" fontWeight={600} color="text.primary" gutterBottom>
-                      All caught up! 🎉
-                    </Typography>
-                    <Typography variant="body1" color="text.secondary">
-                      Great job! You have no pending or overdue tasks at the moment.
-                    </Typography>
-                  </Box>
-                )}
+                <AreaChecklists
+                  assignments={[...overdueAssignments, ...pendingAssignments]}
+                  tasks={tasks}
+                  staffProfiles={allStaffProfiles}
+                  onOpen={handleViewAssignment}
+                  onClaim={handleTakeTask}
+                  onComplete={(id) => { window.location.href = `/tasks/${id}/complete`; }}
+                />
               </CardContent>
             </Card>
           </Fade>
@@ -1809,6 +1495,17 @@ const StaffDashboard: React.FC = () => {
           <Button onClick={handleCloseView} color="inherit">
             Close
           </Button>
+          {assignmentToView && assignmentToView.status !== 'completed' && (
+            <Button
+              onClick={() => {
+                handleCloseView();
+                handleRequestReschedule(assignmentToView);
+              }}
+              color="inherit"
+            >
+              Ask for more time
+            </Button>
+          )}
           <Button 
             onClick={() => {
               if (assignmentToView) {

@@ -33,7 +33,8 @@ import {
   assignmentsAPI, 
   staffProfilesAPI, 
   outletsAPI, 
-  monthlySchedulesAPI 
+  monthlySchedulesAPI,
+  branchSetupAPI
 } from '../../services/supabaseService';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -54,7 +55,7 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
   const [availableStaff, setAvailableStaff] = useState<StaffProfile[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  const { control, handleSubmit, watch, reset, formState: { errors } } = useForm<AssignmentFormData>({
+  const { control, handleSubmit, watch, reset, setValue, formState: { errors } } = useForm<AssignmentFormData>({
     defaultValues: {
       taskId: '',
       staffId: '',
@@ -115,6 +116,40 @@ const AssignmentForm: React.FC<AssignmentFormProps> = ({ assignmentId, onSuccess
   useEffect(() => {
     loadAssignmentData();
   }, [loadAssignmentData]);
+
+  // A task already knows which shift it belongs to, and a branch already knows
+  // when that shift ends, so the deadline is a lookup rather than something to
+  // retype. Only prefills an empty field: a time typed by hand is a deliberate
+  // override and must not be overwritten.
+  useEffect(() => {
+    if (assignmentId || selectedDueTime || !selectedTaskId || !selectedOutletId) return;
+
+    const task = tasks.find(t => t.id === selectedTaskId);
+    if (!task) return;
+
+    if (task.dueTimeOverride) {
+      setValue('dueTime', task.dueTimeOverride);
+      return;
+    }
+
+    let cancelled = false;
+
+    branchSetupAPI
+      .getShifts(selectedOutletId)
+      .then(shifts => {
+        if (cancelled) return;
+        const match = shifts.find(s => s.shiftId === task.shiftId);
+        if (match) setValue('dueTime', match.endsAt);
+      })
+      .catch(() => {
+        // A missing deadline is recoverable; the field stays empty and the owner
+        // can type one.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [assignmentId, selectedTaskId, selectedOutletId, selectedDueTime, tasks, setValue]);
 
   // Who is rostered at that outlet, on that day, across that hour. One query for
   // the whole month rather than one per staff member — this used to issue a

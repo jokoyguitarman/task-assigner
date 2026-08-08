@@ -122,10 +122,12 @@ const TaskList: React.FC = () => {
                 <TableRow>
                   <TableCell>Title</TableCell>
                   <TableCell>Description</TableCell>
+                  <TableCell>Due</TableCell>
+                  <TableCell>Area</TableCell>
+                  <TableCell>Branches</TableCell>
                   <TableCell>Estimated Time</TableCell>
                   <TableCell>Type</TableCell>
                   <TableCell>Priority</TableCell>
-                  <TableCell>Scheduled Date</TableCell>
                   <TableCell>Created</TableCell>
                   <TableCell>Actions</TableCell>
                 </TableRow>
@@ -144,6 +146,25 @@ const TaskList: React.FC = () => {
                           ? `${task.description.substring(0, 50)}...`
                           : task.description
                         }
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      {task.dueTimeOverride ? (
+                        <Chip label={task.dueTimeOverride} size="small" color="secondary" />
+                      ) : (
+                        <Typography variant="body2">
+                          end of {task.shift?.name ?? 'shift'}
+                        </Typography>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2">{task.area?.name ?? '—'}</Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" color="text.secondary">
+                        {task.outletIds && task.outletIds.length > 0
+                          ? `${task.outletIds.length} selected`
+                          : 'Everywhere'}
                       </Typography>
                     </TableCell>
                     <TableCell>
@@ -171,12 +192,6 @@ const TaskList: React.FC = () => {
                           color="default"
                         />
                       )}
-                    </TableCell>
-                    <TableCell>
-                      {task.scheduledDate 
-                        ? new Date(task.scheduledDate).toLocaleDateString()
-                        : 'Not scheduled'
-                      }
                     </TableCell>
                     <TableCell>
                       {new Date(task.createdAt).toLocaleDateString()}

@@ -47,6 +47,7 @@ import { assignmentsAPI, tasksAPI, staffProfilesAPI, outletsAPI } from '../../se
 import Leaderboard from './Leaderboard';
 import AssignmentForm from './AssignmentForm';
 import RescheduleRequests from './RescheduleRequests';
+import BranchExceptions from './BranchExceptions';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { realtimeService } from '../../services/realtimeService';
 
@@ -228,6 +229,14 @@ const AdminDashboard: React.FC = () => {
         </Box>
       </Fade>
 
+
+      <BranchExceptions
+        assignments={assignments}
+        tasks={tasks}
+        outlets={outlets}
+        staffProfiles={staffProfiles}
+        onOpen={handleAssignmentClick}
+      />
 
       <RescheduleRequests
         assignments={assignments}
