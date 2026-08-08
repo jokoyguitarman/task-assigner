@@ -9,6 +9,8 @@ import LoginForm from './components/auth/LoginForm';
 import SignupForm from './components/auth/SignupForm';
 import RestaurantSignup from './components/auth/RestaurantSignup';
 import AccountSetup from './components/auth/AccountSetup';
+import ForgotPassword from './components/auth/ForgotPassword';
+import ResetPassword from './components/auth/ResetPassword';
 import AdminDashboard from './components/admin/Dashboard';
 import TaskList from './components/admin/TaskList';
 import AssignmentList from './components/admin/AssignmentList';
@@ -225,6 +227,8 @@ const AppRoutes: React.FC = () => {
       <Route path="/signup" element={<SignupForm />} />
       <Route path="/restaurant-signup" element={<RestaurantSignup />} />
       <Route path="/setup" element={<AccountSetup />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route 
         path="/*" 

@@ -205,6 +205,17 @@ const LoginForm: React.FC = () => {
                     </Button>
                   </Box>
 
+                  <Box textAlign="center" sx={{ mt: 2 }}>
+                    <Button
+                      variant="text"
+                      size="small"
+                      onClick={() => navigate('/forgot-password')}
+                      sx={{ textTransform: 'none' }}
+                    >
+                      Forgot your password?
+                    </Button>
+                  </Box>
+
                   <Box textAlign="center" sx={{ my: 3 }}>
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                       Don't have an account yet?

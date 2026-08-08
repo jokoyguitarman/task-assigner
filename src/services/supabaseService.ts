@@ -270,6 +270,32 @@ export const authAPI = {
     await supabase.auth.signOut();
   },
 
+  // Sends the recovery link. Until this existed, forgetting the password on a
+  // branch phone locked that branch out permanently, with no way back except an
+  // administrator editing the database.
+  async sendPasswordReset(email: string): Promise<void> {
+    if (!isSupabaseConfigured()) {
+      throw new Error('Supabase not configured. Please set environment variables.');
+    }
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+
+    if (error) throw error;
+  },
+
+  // Used both from a recovery link and by someone already signed in, because in
+  // both cases Supabase has put a session in place first.
+  async setPassword(newPassword: string): Promise<void> {
+    if (!isSupabaseConfigured()) {
+      throw new Error('Supabase not configured. Please set environment variables.');
+    }
+
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) throw error;
+  },
+
   async getCurrentUser(): Promise<User | null> {
     if (!isSupabaseConfigured()) {
       return null;
