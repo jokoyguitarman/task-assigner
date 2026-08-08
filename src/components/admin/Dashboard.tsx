@@ -62,24 +62,6 @@ const AdminDashboard: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [showAssignmentForm, setShowAssignmentForm] = useState(false);
 
-  // Writes the overdue flag back for anything whose deadline has passed. This
-  // only runs while an admin has the dashboard open, which is why the sweep
-  // belongs in a scheduled job — see the note in supabase/SCHEMA_NOTES.md.
-  const updateOverdueAssignments = useCallback(async () => {
-    const wentOverdue = assignments.filter(
-      a => a.status === 'pending' && isAssignmentOverdue(a)
-    );
-    if (wentOverdue.length === 0) return;
-
-    try {
-      await Promise.all(
-        wentOverdue.map(a => assignmentsAPI.update(a.id, { status: 'overdue' }))
-      );
-    } catch (error) {
-      console.error('Error updating overdue assignments:', error);
-    }
-  }, [assignments]);
-
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
@@ -107,13 +89,6 @@ const AdminDashboard: React.FC = () => {
   useEffect(() => {
     loadData();
   }, [loadData]);
-
-  // Runs after the data lands. It used to be awaited straight after loadData on
-  // mount, where `assignments` was still the empty initial state, so it never
-  // marked anything overdue.
-  useEffect(() => {
-    updateOverdueAssignments();
-  }, [updateOverdueAssignments]);
 
   useEffect(() => {
     const unsubscribe = realtimeService.subscribeToDashboardMetrics();
@@ -523,13 +498,6 @@ const AdminDashboard: React.FC = () => {
                         sx={{ mr: 1 }}
                       />
                     )}
-                    <Button
-                      variant="outlined"
-                      onClick={updateOverdueAssignments}
-                      sx={{ borderRadius: 2 }}
-                    >
-                      Update Overdue
-                    </Button>
                   <Button
                     variant="contained"
                     startIcon={<Add />}
