@@ -43,7 +43,7 @@ interface AppLayoutProps {
 }
 
 const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
-  const { user, logout } = useAuth();
+  const { user, logout, currentOutlet } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const theme = useTheme();
@@ -55,14 +55,6 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   useEffect(() => {
     if (user && !realtimeInitialized.current) {
       console.log('🔔 Initializing real-time service for user:', user.id);
-      
-      // Set current user context for realtime service
-      realtimeService.setCurrentUser(
-        user.id, 
-        user.role, 
-        user.organizationId, 
-        undefined // currentOutlet will be set separately if needed
-      );
       
       // Initialize realtime service
       realtimeService.initialize().catch(error => {
@@ -76,6 +68,15 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       realtimeInitialized.current = false;
     }
   }, [user]);
+
+  // Kept in its own effect because the branch identity resolves after the session
+  // does. Setting it once during initialisation left the outlet permanently
+  // undefined, so realtime could never tell which branch an event belonged to.
+  useEffect(() => {
+    if (user) {
+      realtimeService.setCurrentUser(user.id, user.role, user.organizationId, currentOutlet?.id);
+    }
+  }, [user, currentOutlet]);
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -181,7 +182,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
               Task Assigner
             </Typography>
             <Typography variant="body2" sx={{ opacity: 0.9 }}>
-              {user?.role === 'admin' ? 'Admin Panel' : 'Staff Portal'}
+              {user?.role === 'admin' ? 'Admin Panel' : 'Branch Portal'}
             </Typography>
           </Box>
         </Box>
@@ -198,17 +199,9 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
               {user?.name}
             </Typography>
             <Chip
-              label={
-                user?.role === 'admin' ? 'Administrator' : 
-                user?.role === 'outlet' ? 'Outlet Manager' : 
-                'Staff Member'
-              }
+              label={user?.role === 'admin' ? 'Administrator' : 'Branch'}
               size="small"
-              color={
-                user?.role === 'admin' ? 'primary' : 
-                user?.role === 'outlet' ? 'info' : 
-                'secondary'
-              }
+              color={user?.role === 'admin' ? 'primary' : 'info'}
               variant="outlined"
               sx={{ mt: 0.5, fontSize: '0.75rem' }}
             />
@@ -358,8 +351,8 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
             <NotificationBell />
             <Chip
               icon={user?.role === 'admin' ? <AdminPanelSettings /> : <Person />}
-              label={user?.role === 'admin' ? 'Administrator' : 'Staff Member'}
-              color={user?.role === 'admin' ? 'primary' : 'secondary'}
+              label={user?.role === 'admin' ? 'Administrator' : 'Branch'}
+              color={user?.role === 'admin' ? 'primary' : 'info'}
               variant="outlined"
               sx={{ fontWeight: 500 }}
             />

@@ -632,7 +632,11 @@ export const assignmentsAPI = {
         // Persisted so a task can be late the same evening rather than only
         // once the calendar rolls over. The form has always collected it.
         due_time: assignmentData.dueTime || null,
-        outlet_id: assignmentData.outletId || null,
+        // Required by the schema. Caught here so the failure names the missing
+        // field rather than surfacing as a not-null violation.
+        outlet_id: assignmentData.outletId || (() => {
+          throw new Error('An assignment needs an outlet.');
+        })(),
         organization_id: assignmentData.organizationId || (await requireOrganizationId()),
         status: assignmentData.status,
         completed_at: assignmentData.completedAt?.toISOString(),

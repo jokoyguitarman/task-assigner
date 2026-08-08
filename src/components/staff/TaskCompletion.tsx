@@ -65,8 +65,18 @@ const TaskCompletion: React.FC = () => {
       }
 
       // Who assigned it. This used to fetch every user in the organization to
-      // resolve one name.
-      setAssignedBy(taskData.createdBy ? await usersAPI.getById(taskData.createdBy) : null);
+      // resolve one name. A missing name is not worth blocking a completion over,
+      // so failing to resolve it must not reach the catch below and replace the
+      // whole screen with an error.
+      if (taskData.createdBy) {
+        try {
+          setAssignedBy(await usersAPI.getById(taskData.createdBy));
+        } catch {
+          setAssignedBy(null);
+        }
+      } else {
+        setAssignedBy(null);
+      }
     } catch (err: any) {
       console.error('Error loading assignment data:', err);
       setError(err.message || 'Failed to load task details');

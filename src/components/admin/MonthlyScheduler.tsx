@@ -761,8 +761,16 @@ const MonthlyScheduler: React.FC = () => {
             // Check if schedule already exists for this day
             const existingSchedule = getStaffScheduleForDate(staff.id, newDate);
             if (!existingSchedule) {
-              // Find or create monthly schedule
-              let monthlySchedule = monthlySchedules.find(s => s.staffId === staff.id);
+              // Must match the month being copied into, not merely the person. A
+              // week that straddles a month boundary was attaching days to
+              // whichever of their schedules happened to come first, which now
+              // collides with the unique constraint on (schedule, date).
+              let monthlySchedule = monthlySchedules.find(
+                s =>
+                  s.staffId === staff.id &&
+                  s.month === newDate.getMonth() + 1 &&
+                  s.year === newDate.getFullYear()
+              );
               if (!monthlySchedule) {
                 monthlySchedule = await monthlySchedulesAPI.create({
                   staffId: staff.id,

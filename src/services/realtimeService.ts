@@ -122,29 +122,28 @@ class RealtimeService {
   }
 
   public setCurrentUser(userId: string, role: string, organizationId?: string, outletId?: string) {
-    console.log('🔔 Setting current user context:', { userId, role, organizationId, outletId });
+    // The branch identity arrives after the session, so this is called more than
+    // once per sign-in. Rebuilding every channel each time would drop and reopen
+    // websockets for no reason.
+    const unchanged =
+      this.currentUserId === userId &&
+      this.currentUserRole === role &&
+      this.currentOrganizationId === organizationId &&
+      this.currentOutletId === outletId;
+
+    if (unchanged) return;
+
     this.currentUserId = userId;
     this.currentUserRole = role;
     this.currentOrganizationId = organizationId;
     this.currentOutletId = outletId;
-    
-    // Clean up existing subscriptions and reinitialize
+
     this.cleanup();
     this.initialize();
   }
 
   public triggerNotification(notification: RealtimeNotification) {
     this.handleNotification(notification);
-  }
-
-  public testNotification() {
-    const testNotification = this.createRealtimeNotification(
-      'assignment_created',
-      'Test Notification',
-      'This is a test notification to verify the system is working',
-      { test: true }
-    );
-    this.handleNotification(testNotification);
   }
 
   public async initialize() {
@@ -176,27 +175,6 @@ class RealtimeService {
       supabase.removeChannel(existing);
     }
     this.subscriptions.set(key, channel);
-  }
-
-  private shouldNotifyUser(newRecord: any, oldRecord: any, eventType: string): boolean {
-    if (!this.currentUserId || !this.currentUserRole) {
-      return false;
-    }
-
-    // Only two kinds of principal receive notifications. Staff have no session
-    // to notify: they work from the branch's shared phone, so anything meant for
-    // them reaches the branch.
-    if (eventType === 'INSERT' || eventType === 'UPDATE') {
-      if (this.currentUserRole === 'admin') {
-        return true;
-      }
-
-      if (this.currentUserRole === 'outlet' && (newRecord as any)?.outletId === this.currentOutletId) {
-        return true;
-      }
-    }
-
-    return false;
   }
 
   private subscribeToTasks() {
