@@ -35,6 +35,7 @@ import {
 import { outletsAPI } from '../../services/supabaseService';
 import { Outlet, OutletFormData } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
+import BranchSetup from './BranchSetup';
 
 const OutletManagement: React.FC = () => {
   const { user } = useAuth();
@@ -295,7 +296,7 @@ const OutletManagement: React.FC = () => {
       </Slide>
 
       {/* Add/Edit Outlet Dialog */}
-      <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
+      <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>
         <DialogTitle>
           {editingOutlet ? 'Edit Outlet' : 'Add New Outlet'}
         </DialogTitle>
@@ -341,11 +342,22 @@ const OutletManagement: React.FC = () => {
                 variant="outlined"
               />
             </Grid>
-            
-            {/* Login Credentials Section */}
-
           </Grid>
-          
+
+          {/* Shifts and areas decide what work this branch receives and when it
+              is due, so they belong with the branch rather than on a separate
+              screen someone has to remember to visit. Only shown when editing:
+              a branch has to exist before it can be configured, and a new one
+              starts with every shift and area anyway. */}
+          {editingOutlet && (
+            <Box sx={{ mt: 3, pt: 3, borderTop: '1px solid #e2e8f0' }}>
+              <Typography variant="subtitle2" fontWeight={600} gutterBottom>
+                When this branch works, and what it has
+              </Typography>
+              <BranchSetup outletId={editingOutlet.id} outletName={editingOutlet.name} />
+            </Box>
+          )}
+
           {error && (
             <Alert severity="error" sx={{ mt: 2 }}>
               {error}

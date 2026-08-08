@@ -5,7 +5,7 @@ import {
   User, Task, TaskAssignment, Organization,
   StaffPosition, Outlet, StaffProfile, MonthlySchedule, 
   DailySchedule, TaskCompletionProof, Invitation, PublicInvitation, InvitationFormData,
-  Reassignment
+  Reassignment, ShiftDefinition, Area, OutletShift
 } from '../types';
 
 // Helper function to check if Supabase is configured
@@ -48,10 +48,43 @@ const transformTask = (row: any): Task => ({
   recurringPattern: row.recurring_pattern,
   scheduledDate: row.scheduled_date ? parseDateOnly(row.scheduled_date) : undefined,
   isHighPriority: row.is_high_priority || false,
+  shiftId: row.shift_id,
+  areaId: row.area_id,
+  dueTimeOverride: row.due_time_override ? hhmm(row.due_time_override) : undefined,
+  outletIds: row.task_outlets ? row.task_outlets.map((t: any) => t.outlet_id) : undefined,
   organizationId: row.organization_id,
   createdBy: row.created_by,
   createdAt: new Date(row.created_at),
   updatedAt: new Date(row.updated_at),
+  shift: row.shift ? transformShiftDefinition(row.shift) : undefined,
+  area: row.area ? transformArea(row.area) : undefined,
+});
+
+// Postgres hands back TIME as HH:MM:SS; every input and comparison in the client
+// works in HH:MM.
+const hhmm = (value: string): string => value.slice(0, 5);
+
+const transformShiftDefinition = (row: any): ShiftDefinition => ({
+  id: row.id,
+  organizationId: row.organization_id,
+  name: row.name,
+  sortOrder: row.sort_order ?? 0,
+});
+
+const transformArea = (row: any): Area => ({
+  id: row.id,
+  organizationId: row.organization_id,
+  name: row.name,
+  sortOrder: row.sort_order ?? 0,
+});
+
+const transformOutletShift = (row: any): OutletShift => ({
+  id: row.id,
+  outletId: row.outlet_id,
+  shiftId: row.shift_id,
+  startsAt: hhmm(row.starts_at),
+  endsAt: hhmm(row.ends_at),
+  shift: row.shift ? transformShiftDefinition(row.shift) : undefined,
 });
 
 const transformTaskAssignment = (row: any): TaskAssignment => ({
@@ -461,6 +494,204 @@ export const organizationsAPI = {
   },
 };
 
+// A task is only meaningful alongside its shift and area, and the branches it is
+// limited to, so every read pulls them rather than leaving callers to join.
+const TASK_SELECT = '*, shift:shift_id (*), area:area_id (*), task_outlets (outlet_id)';
+
+// Targeting is a set, not a field, so it is replaced wholesale. An empty or
+// absent list means every branch that runs the shift and has the area, which is
+// why clearing the rows is the same as saying "everywhere".
+const replaceTaskOutlets = async (taskId: string, outletIds?: string[]): Promise<void> => {
+  const { error: clearError } = await supabase.from('task_outlets').delete().eq('task_id', taskId);
+  if (clearError) throw clearError;
+
+  if (!outletIds || outletIds.length === 0) return;
+
+  const { error } = await supabase
+    .from('task_outlets')
+    .insert(outletIds.map(outletId => ({ task_id: taskId, outlet_id: outletId })));
+
+  if (error) throw error;
+};
+
+// The business vocabulary. Everyone reads it, only the owner changes it, because
+// these definitions decide when work is late at every branch.
+export const shiftsAPI = {
+  async getAll(): Promise<ShiftDefinition[]> {
+    if (!isSupabaseConfigured()) return [];
+
+    const { data, error } = await supabase
+      .from('shift_definitions')
+      .select('*')
+      .order('sort_order', { ascending: true });
+
+    if (error) throw error;
+
+    return data.map(transformShiftDefinition);
+  },
+
+  async create(name: string, sortOrder: number): Promise<ShiftDefinition> {
+    if (!isSupabaseConfigured()) throw new Error('Supabase not configured');
+
+    const { data, error } = await supabase
+      .from('shift_definitions')
+      .insert({ name: name.trim(), sort_order: sortOrder, organization_id: await requireOrganizationId() })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return transformShiftDefinition(data);
+  },
+
+  async rename(id: string, name: string): Promise<void> {
+    if (!isSupabaseConfigured()) throw new Error('Supabase not configured');
+
+    const { error } = await supabase.from('shift_definitions').update({ name: name.trim() }).eq('id', id);
+    if (error) throw error;
+  },
+
+  // Refused by the database while any task still uses it, which is the right
+  // answer: silently deleting the shift would leave that work with no deadline.
+  async remove(id: string): Promise<void> {
+    if (!isSupabaseConfigured()) throw new Error('Supabase not configured');
+
+    const { error } = await supabase.from('shift_definitions').delete().eq('id', id);
+    if (error) throw error;
+  },
+};
+
+export const areasAPI = {
+  async getAll(): Promise<Area[]> {
+    if (!isSupabaseConfigured()) return [];
+
+    const { data, error } = await supabase
+      .from('areas')
+      .select('*')
+      .order('sort_order', { ascending: true });
+
+    if (error) throw error;
+
+    return data.map(transformArea);
+  },
+
+  async create(name: string, sortOrder: number): Promise<Area> {
+    if (!isSupabaseConfigured()) throw new Error('Supabase not configured');
+
+    const { data, error } = await supabase
+      .from('areas')
+      .insert({ name: name.trim(), sort_order: sortOrder, organization_id: await requireOrganizationId() })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return transformArea(data);
+  },
+
+  async rename(id: string, name: string): Promise<void> {
+    if (!isSupabaseConfigured()) throw new Error('Supabase not configured');
+
+    const { error } = await supabase.from('areas').update({ name: name.trim() }).eq('id', id);
+    if (error) throw error;
+  },
+
+  async remove(id: string): Promise<void> {
+    if (!isSupabaseConfigured()) throw new Error('Supabase not configured');
+
+    const { error } = await supabase.from('areas').delete().eq('id', id);
+    if (error) throw error;
+  },
+};
+
+// What a given branch actually runs and has.
+export const branchSetupAPI = {
+  async getShifts(outletId: string): Promise<OutletShift[]> {
+    if (!isSupabaseConfigured()) return [];
+
+    const { data, error } = await supabase
+      .from('outlet_shifts')
+      .select('*, shift:shift_id (*)')
+      .eq('outlet_id', outletId);
+
+    if (error) throw error;
+
+    return data.map(transformOutletShift);
+  },
+
+  async getAreaIds(outletId: string): Promise<string[]> {
+    if (!isSupabaseConfigured()) return [];
+
+    const { data, error } = await supabase
+      .from('outlet_areas')
+      .select('area_id')
+      .eq('outlet_id', outletId);
+
+    if (error) throw error;
+
+    return data.map((row: any) => row.area_id);
+  },
+
+  // Replaces the branch's whole configuration in one go, which keeps the screen
+  // simple: the owner ticks what is true and saves.
+  async save(
+    outletId: string,
+    shifts: { shiftId: string; startsAt: string; endsAt: string }[],
+    areaIds: string[]
+  ): Promise<void> {
+    if (!isSupabaseConfigured()) throw new Error('Supabase not configured');
+
+    const { error: clearShifts } = await supabase.from('outlet_shifts').delete().eq('outlet_id', outletId);
+    if (clearShifts) throw clearShifts;
+
+    if (shifts.length > 0) {
+      const { error } = await supabase.from('outlet_shifts').insert(
+        shifts.map(s => ({
+          outlet_id: outletId,
+          shift_id: s.shiftId,
+          starts_at: s.startsAt,
+          ends_at: s.endsAt,
+        }))
+      );
+      if (error) throw error;
+    }
+
+    const { error: clearAreas } = await supabase.from('outlet_areas').delete().eq('outlet_id', outletId);
+    if (clearAreas) throw clearAreas;
+
+    if (areaIds.length > 0) {
+      const { error } = await supabase
+        .from('outlet_areas')
+        .insert(areaIds.map(areaId => ({ outlet_id: outletId, area_id: areaId })));
+      if (error) throw error;
+    }
+  },
+
+  // A new branch starts running every shift at default hours and having every
+  // area, so it receives work immediately. Starting empty would mean a branch
+  // that silently gets nothing until someone notices.
+  async applyDefaults(outletId: string): Promise<void> {
+    if (!isSupabaseConfigured()) return;
+
+    const [shifts, areas] = await Promise.all([shiftsAPI.getAll(), areasAPI.getAll()]);
+
+    const defaultHours: Record<string, { startsAt: string; endsAt: string }> = {
+      Opening: { startsAt: '09:00', endsAt: '12:00' },
+      Mid: { startsAt: '12:00', endsAt: '18:00' },
+      Closing: { startsAt: '18:00', endsAt: '23:00' },
+    };
+
+    await branchSetupAPI.save(
+      outletId,
+      shifts.map(s => ({
+        shiftId: s.id,
+        ...(defaultHours[s.name] ?? { startsAt: '09:00', endsAt: '17:00' }),
+      })),
+      areas.map(a => a.id)
+    );
+  },
+};
+
 // Tasks API
 export const tasksAPI = {
   async getAll(): Promise<Task[]> {
@@ -470,7 +701,7 @@ export const tasksAPI = {
 
     const { data, error } = await supabase
       .from('tasks')
-      .select('*')
+      .select(TASK_SELECT)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -485,7 +716,7 @@ export const tasksAPI = {
 
     const { data, error } = await supabase
       .from('tasks')
-      .select('*')
+      .select(TASK_SELECT)
       .eq('id', id)
       .single();
 
@@ -509,13 +740,18 @@ export const tasksAPI = {
         recurring_pattern: taskData.recurringPattern,
         scheduled_date: taskData.scheduledDate ? toDateOnly(taskData.scheduledDate) : null,
         is_high_priority: taskData.isHighPriority,
+        shift_id: taskData.shiftId,
+        area_id: taskData.areaId,
+        due_time_override: taskData.dueTimeOverride || null,
         created_by: taskData.createdBy,
         organization_id: taskData.organizationId || (await requireOrganizationId()),
       })
-      .select()
+      .select(TASK_SELECT)
       .single();
 
     if (error) throw error;
+
+    await replaceTaskOutlets(data.id, taskData.outletIds);
 
     return transformTask(data);
   },
@@ -538,16 +774,23 @@ export const tasksAPI = {
       updateData.scheduled_date = taskData.scheduledDate ? toDateOnly(taskData.scheduledDate) : null;
     }
     if (taskData.isHighPriority !== undefined) updateData.is_high_priority = taskData.isHighPriority;
+    if (taskData.shiftId !== undefined) updateData.shift_id = taskData.shiftId;
+    if (taskData.areaId !== undefined) updateData.area_id = taskData.areaId;
+    if (taskData.dueTimeOverride !== undefined) updateData.due_time_override = taskData.dueTimeOverride || null;
     if (taskData.createdBy !== undefined) updateData.created_by = taskData.createdBy;
 
     const { data, error } = await supabase
       .from('tasks')
       .update(updateData)
       .eq('id', id)
-      .select()
+      .select(TASK_SELECT)
       .single();
 
     if (error) throw error;
+
+    if (taskData.outletIds !== undefined) {
+      await replaceTaskOutlets(id, taskData.outletIds);
+    }
 
     return transformTask(data);
   },
@@ -959,6 +1202,10 @@ export const outletsAPI = {
       .single();
 
     if (error) throw error;
+
+    // Without this the branch runs no shifts and has no areas, so it would
+    // quietly receive no work at all until someone thought to configure it.
+    await branchSetupAPI.applyDefaults(data.id);
 
     return transformOutlet(data);
   },

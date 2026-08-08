@@ -27,6 +27,32 @@ export interface AuthClaims {
   outletId?: string;
 }
 
+// The business names its shifts once; each branch says which it runs and when.
+// A shift whose end is not after its start runs past midnight, which is ordinary
+// for a closing shift and means the deadline lands on the following day.
+export interface ShiftDefinition {
+  id: string;
+  organizationId: string;
+  name: string;
+  sortOrder: number;
+}
+
+export interface Area {
+  id: string;
+  organizationId: string;
+  name: string;
+  sortOrder: number;
+}
+
+export interface OutletShift {
+  id: string;
+  outletId: string;
+  shiftId: string;
+  startsAt: string; // HH:MM
+  endsAt: string;   // HH:MM
+  shift?: ShiftDefinition;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -36,10 +62,21 @@ export interface Task {
   recurringPattern?: 'daily' | 'weekly' | 'monthly';
   scheduledDate?: Date;
   isHighPriority: boolean;
+  // Which shift the work belongs to, and which checklist it appears in. Both are
+  // required: together they decide where and when the task lands.
+  shiftId: string;
+  areaId: string;
+  // When set, this exact time wins at every branch instead of the shift's end.
+  dueTimeOverride?: string; // HH:MM
+  // Empty means every branch that runs the shift and has the area.
+  outletIds?: string[];
   organizationId: string;
   createdAt: Date;
   updatedAt: Date;
   createdBy: string; // Admin user ID
+  // Populated fields
+  shift?: ShiftDefinition;
+  area?: Area;
 }
 
 export interface TaskAssignment {
@@ -120,6 +157,10 @@ export interface TaskFormData {
   recurringPattern?: 'daily' | 'weekly' | 'monthly';
   scheduledDate?: Date;
   isHighPriority: boolean;
+  shiftId: string;
+  areaId: string;
+  dueTimeOverride?: string;
+  outletIds?: string[];
 }
 
 export interface AssignmentFormData {

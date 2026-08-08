@@ -11,15 +11,18 @@ import {
   Select,
   MenuItem,
   FormControlLabel,
+  FormHelperText,
   Switch,
   Grid,
+  Checkbox,
+  ListItemText,
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { useForm, Controller } from 'react-hook-form';
-import { TaskFormData } from '../../types';
-import { tasksAPI } from '../../services/supabaseService';
+import { TaskFormData, ShiftDefinition, Area, Outlet } from '../../types';
+import { tasksAPI, shiftsAPI, areasAPI, outletsAPI } from '../../services/supabaseService';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface TaskFormProps {
@@ -32,8 +35,11 @@ const TaskForm: React.FC<TaskFormProps> = ({ taskId, onSuccess, onCancel }) => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [formLoading, setFormLoading] = useState(false);
-  
-  const { control, handleSubmit, watch, reset, formState: { errors } } = useForm<TaskFormData>({
+  const [shifts, setShifts] = useState<ShiftDefinition[]>([]);
+  const [areas, setAreas] = useState<Area[]>([]);
+  const [outlets, setOutlets] = useState<Outlet[]>([]);
+
+  const { control, handleSubmit, watch, reset, setValue, formState: { errors } } = useForm<TaskFormData>({
     defaultValues: {
       title: '',
       description: '',
@@ -41,10 +47,35 @@ const TaskForm: React.FC<TaskFormProps> = ({ taskId, onSuccess, onCancel }) => {
       isRecurring: false,
       recurringPattern: 'daily',
       isHighPriority: false,
+      shiftId: '',
+      areaId: '',
+      dueTimeOverride: '',
+      outletIds: [],
     },
   });
 
   const isRecurring = watch('isRecurring');
+  const selectedShiftId = watch('shiftId');
+  const selectedOutletIds = watch('outletIds') || [];
+
+  useEffect(() => {
+    const loadOptions = async () => {
+      try {
+        const [shiftData, areaData, outletData] = await Promise.all([
+          shiftsAPI.getAll(),
+          areasAPI.getAll(),
+          outletsAPI.getAll(),
+        ]);
+        setShifts(shiftData);
+        setAreas(areaData);
+        setOutlets(outletData.filter(o => o.isActive));
+      } catch (error) {
+        console.error('Error loading shifts and areas:', error);
+      }
+    };
+
+    loadOptions();
+  }, []);
 
   // Load task data when editing
   useEffect(() => {
@@ -61,6 +92,10 @@ const TaskForm: React.FC<TaskFormProps> = ({ taskId, onSuccess, onCancel }) => {
             recurringPattern: task.recurringPattern || 'daily',
             scheduledDate: task.scheduledDate,
             isHighPriority: task.isHighPriority,
+            shiftId: task.shiftId,
+            areaId: task.areaId,
+            dueTimeOverride: task.dueTimeOverride || '',
+            outletIds: task.outletIds || [],
           });
         } catch (error) {
           console.error('Error loading task:', error);
@@ -72,6 +107,15 @@ const TaskForm: React.FC<TaskFormProps> = ({ taskId, onSuccess, onCancel }) => {
 
     loadTask();
   }, [taskId, reset]);
+
+  // A new task lands on the last shift of the day, which is the answer for
+  // anything that only has to happen before closing. It is the lazy path, and it
+  // is why the shift dropdown rarely needs touching.
+  useEffect(() => {
+    if (!taskId && !selectedShiftId && shifts.length > 0) {
+      setValue('shiftId', shifts[shifts.length - 1].id);
+    }
+  }, [taskId, selectedShiftId, shifts, setValue]);
 
   const onSubmit = async (data: TaskFormData) => {
     setLoading(true);
@@ -189,6 +233,98 @@ const TaskForm: React.FC<TaskFormProps> = ({ taskId, onSuccess, onCancel }) => {
                         <TextField {...params} fullWidth />
                       )}
                     />
+                  )}
+                />
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <Controller
+                  name="shiftId"
+                  control={control}
+                  rules={{ required: 'Choose which shift this belongs to' }}
+                  render={({ field }) => (
+                    <FormControl fullWidth error={!!errors.shiftId}>
+                      <InputLabel>Shift</InputLabel>
+                      <Select {...field} label="Shift">
+                        {shifts.map(shift => (
+                          <MenuItem key={shift.id} value={shift.id}>{shift.name}</MenuItem>
+                        ))}
+                      </Select>
+                      <FormHelperText>
+                        {errors.shiftId?.message || "Due by the end of this shift, at each branch's own time"}
+                      </FormHelperText>
+                    </FormControl>
+                  )}
+                />
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <Controller
+                  name="areaId"
+                  control={control}
+                  rules={{ required: 'Choose an area' }}
+                  render={({ field }) => (
+                    <FormControl fullWidth error={!!errors.areaId}>
+                      <InputLabel>Area</InputLabel>
+                      <Select {...field} label="Area">
+                        {areas.map(area => (
+                          <MenuItem key={area.id} value={area.id}>{area.name}</MenuItem>
+                        ))}
+                      </Select>
+                      <FormHelperText>
+                        {errors.areaId?.message || 'Which checklist it appears in on the branch phone'}
+                      </FormHelperText>
+                    </FormControl>
+                  )}
+                />
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <Controller
+                  name="dueTimeOverride"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      {...field}
+                      fullWidth
+                      type="time"
+                      label="Exact time (optional)"
+                      InputLabelProps={{ shrink: true }}
+                      helperText="Overrides the shift end at every branch. Leave empty unless the hour matters."
+                    />
+                  )}
+                />
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <Controller
+                  name="outletIds"
+                  control={control}
+                  render={({ field }) => (
+                    <FormControl fullWidth>
+                      <InputLabel>Branches</InputLabel>
+                      <Select
+                        {...field}
+                        multiple
+                        label="Branches"
+                        value={field.value || []}
+                        renderValue={(selected) =>
+                          (selected as string[]).length === 0
+                            ? 'Everywhere it applies'
+                            : outlets.filter(o => (selected as string[]).includes(o.id)).map(o => o.name).join(', ')
+                        }
+                      >
+                        {outlets.map(outlet => (
+                          <MenuItem key={outlet.id} value={outlet.id}>
+                            <Checkbox checked={selectedOutletIds.includes(outlet.id)} />
+                            <ListItemText primary={outlet.name} />
+                          </MenuItem>
+                        ))}
+                      </Select>
+                      <FormHelperText>
+                        Leave empty and shift plus area already decide where it lands.
+                      </FormHelperText>
+                    </FormControl>
                   )}
                 />
               </Grid>

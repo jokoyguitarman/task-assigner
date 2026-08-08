@@ -133,6 +133,11 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         path: '/invitations',
       },
       {
+        text: 'Shifts & Areas',
+        icon: <Schedule />,
+        path: '/business-setup',
+      },
+      {
         text: 'Weekly Scheduler',
         icon: <CalendarMonth />,
         path: '/scheduler',

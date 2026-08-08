@@ -15,6 +15,7 @@ import AdminDashboard from './components/admin/Dashboard';
 import TaskList from './components/admin/TaskList';
 import AssignmentList from './components/admin/AssignmentList';
 import OutletManagement from './components/admin/OutletManagement';
+import BusinessSetup from './components/admin/BusinessSetup';
 import StaffEnrollment from './components/admin/StaffEnrollment';
 import MonthlyScheduler from './components/admin/MonthlyScheduler';
 import TaskCompletionReports from './components/admin/TaskCompletionReports';
@@ -198,6 +199,7 @@ const AdminRoutes: React.FC = () => (
     <Route path="/tasks" element={<TaskList />} />
     <Route path="/staff" element={<StaffEnrollment />} />
     <Route path="/outlets" element={<OutletManagement />} />
+    <Route path="/business-setup" element={<BusinessSetup />} />
     <Route path="/scheduler" element={<MonthlyScheduler />} />
     <Route path="/assignments" element={<AssignmentList />} />
     <Route path="/reports" element={<TaskCompletionReports />} />
