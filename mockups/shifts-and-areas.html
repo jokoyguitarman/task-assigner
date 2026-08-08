@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Task Assigner — what changes when shifts and areas go live</title>
+<style>
+  :root {
+    --indigo: #6366f1;
+    --indigo-dark: #4f46e5;
+    --ink: #0f172a;
+    --muted: #64748b;
+    --line: #e2e8f0;
+    --bg: #f1f5f9;
+    --card: #ffffff;
+    --red: #dc2626;
+    --red-bg: #fef2f2;
+    --amber: #d97706;
+    --amber-bg: #fffbeb;
+    --green: #16a34a;
+    --green-bg: #f0fdf4;
+    --shadow: 0 1px 3px rgba(15,23,42,.08), 0 1px 2px rgba(15,23,42,.04);
+    --shadow-lg: 0 10px 30px rgba(15,23,42,.10);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.5;
+  }
+  header.top {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    color: #fff;
+    padding: 28px 24px 20px;
+  }
+  header.top h1 { margin: 0 0 4px; font-size: 22px; font-weight: 700; }
+  header.top p { margin: 0; opacity: .9; font-size: 14px; max-width: 760px; }
+  nav.tabs {
+    display: flex; gap: 4px; flex-wrap: wrap;
+    background: #fff; padding: 0 16px; border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; z-index: 20;
+  }
+  nav.tabs button {
+    border: 0; background: none; padding: 14px 14px; font-size: 13.5px; font-weight: 600;
+    color: var(--muted); cursor: pointer; border-bottom: 3px solid transparent; font-family: inherit;
+  }
+  nav.tabs button:hover { color: var(--ink); }
+  nav.tabs button.active { color: var(--indigo); border-bottom-color: var(--indigo); }
+  main { padding: 24px; max-width: 1180px; margin: 0 auto; }
+  section.screen { display: none; }
+  section.screen.active { display: block; animation: fade .2s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px);} to {opacity:1;transform:none;} }
+
+  .screen-intro { margin-bottom: 20px; }
+  .screen-intro h2 { margin: 0 0 6px; font-size: 19px; }
+  .screen-intro p { margin: 0; color: var(--muted); font-size: 14.5px; max-width: 780px; }
+
+  .note {
+    background: #eef2ff; border: 1px solid #c7d2fe; border-left: 4px solid var(--indigo);
+    border-radius: 8px; padding: 12px 14px; margin: 16px 0; font-size: 13.5px; color: #312e81;
+  }
+  .note strong { color: #1e1b4b; }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+  .card-pad { padding: 20px; }
+  .card h3 { margin: 0 0 4px; font-size: 16px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+
+  .row { display: flex; gap: 20px; flex-wrap: wrap; }
+  .col { flex: 1 1 340px; min-width: 300px; }
+
+  label.fld { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 5px; text-transform: none; }
+  .input, .select {
+    width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px;
+    font-size: 14px; font-family: inherit; background: #fff; color: var(--ink);
+  }
+  .input[disabled] { background: #f8fafc; color: var(--muted); }
+  .field { margin-bottom: 16px; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  .btn {
+    background: var(--indigo); color: #fff; border: 0; border-radius: 8px; padding: 10px 18px;
+    font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit;
+  }
+  .btn.secondary { background: #fff; color: var(--ink); border: 1px solid #cbd5e1; }
+  .btn.ghost { background: transparent; color: var(--indigo); border: 1px dashed #c7d2fe; }
+
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px;
+    font-size: 12px; font-weight: 600; border: 1px solid transparent;
+  }
+  .chip.grey { background: #f1f5f9; color: #475569; border-color: var(--line); }
+  .chip.indigo { background: #eef2ff; color: #4338ca; border-color: #c7d2fe; }
+  .chip.red { background: var(--red-bg); color: var(--red); border-color: #fecaca; }
+  .chip.amber { background: var(--amber-bg); color: var(--amber); border-color: #fde68a; }
+  .chip.green { background: var(--green-bg); color: var(--green); border-color: #bbf7d0; }
+
+  .pill-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  .shift-line {
+    display: grid; grid-template-columns: 1fr 110px 16px 110px auto; gap: 10px; align-items: center;
+    padding: 12px 0; border-bottom: 1px solid #f1f5f9;
+  }
+  .shift-line:last-child { border-bottom: 0; }
+  .shift-name { font-weight: 600; font-size: 14px; }
+  .arrow { text-align: center; color: var(--muted); }
+
+  .checkline { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid #f8fafc; }
+  .checkline:last-child { border-bottom: 0; }
+  .checkline input { width: 17px; height: 17px; accent-color: var(--indigo); }
+
+  /* phone */
+  .phone {
+    width: 380px; max-width: 100%; border: 10px solid #0f172a; border-radius: 34px;
+    background: #fff; overflow: hidden; box-shadow: var(--shadow-lg);
+  }
+  .phone-status {
+    background: #0f172a; color: #cbd5e1; font-size: 11px; padding: 5px 16px 8px;
+    display: flex; justify-content: space-between;
+  }
+  .phone-head { background: linear-gradient(135deg,#6366f1,#8b5cf6); color: #fff; padding: 16px; }
+  .phone-head .who { font-size: 12px; opacity: .85; }
+  .phone-head .title { font-size: 18px; font-weight: 700; }
+  .phone-body { padding: 14px; background: #f8fafc; max-height: 620px; overflow-y: auto; }
+
+  .area-group { margin-bottom: 16px; }
+  .area-head {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--muted); margin: 0 2px 8px;
+  }
+  .task-row {
+    background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px;
+    display: flex; gap: 11px; align-items: flex-start; margin-bottom: 8px;
+  }
+  .task-row.late { border-color: #fecaca; background: var(--red-bg); }
+  .task-row.done { opacity: .55; }
+  .box {
+    width: 21px; height: 21px; border: 2px solid #cbd5e1; border-radius: 6px; flex: none; margin-top: 1px;
+    display: flex; align-items: center; justify-content: center; font-size: 13px; color: #fff;
+  }
+  .box.checked { background: var(--green); border-color: var(--green); }
+  .task-title { font-size: 14px; font-weight: 600; }
+  .task-title.struck { text-decoration: line-through; font-weight: 500; }
+  .task-meta { font-size: 12px; color: var(--muted); margin-top: 3px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+  /* owner */
+  .branch-card {
+    display: flex; align-items: center; gap: 14px; padding: 16px 18px;
+    border: 1px solid var(--line); border-radius: 12px; background: #fff; margin-bottom: 10px;
+  }
+  .branch-card.problem { border-color: #fecaca; background: var(--red-bg); }
+  .dot { width: 11px; height: 11px; border-radius: 50%; flex: none; }
+  .dot.green { background: var(--green); }
+  .dot.amber { background: var(--amber); }
+  .dot.red { background: var(--red); }
+  .branch-name { font-weight: 700; font-size: 15px; }
+  .branch-sub { font-size: 13px; color: var(--muted); }
+  .grow { flex: 1; }
+
+  .issue {
+    background: #fff; border: 1px solid #fecaca; border-radius: 10px; padding: 14px 16px; margin: 10px 0 0 34px;
+  }
+  .issue-title { font-weight: 700; font-size: 14px; color: var(--red); }
+  .issue-line { font-size: 13px; color: var(--muted); margin-top: 3px; }
+
+  .timeline { margin-top: 10px; padding-left: 14px; border-left: 2px solid #fecaca; }
+  .tl { font-size: 12.5px; color: var(--muted); padding: 3px 0; }
+  .tl b { color: var(--ink); }
+
+  /* notification */
+  .lock {
+    width: 380px; max-width: 100%; border-radius: 30px; padding: 60px 16px 40px;
+    background: linear-gradient(160deg,#1e1b4b,#312e81 55%,#4c1d95);
+    box-shadow: var(--shadow-lg); color: #fff;
+  }
+  .lock .clock { text-align: center; font-size: 46px; font-weight: 300; letter-spacing: -1px; }
+  .lock .date { text-align: center; opacity: .8; font-size: 13px; margin-bottom: 40px; }
+  .notif {
+    background: rgba(255,255,255,.95); color: var(--ink); border-radius: 16px; padding: 13px 14px;
+    display: flex; gap: 11px; align-items: flex-start;
+  }
+  .notif .ico {
+    width: 34px; height: 34px; border-radius: 9px; background: var(--indigo); color: #fff;
+    display: flex; align-items: center; justify-content: center; font-weight: 700; flex: none; font-size: 15px;
+  }
+  .notif .n-title { font-size: 13.5px; font-weight: 700; }
+  .notif .n-body { font-size: 13px; color: #334155; }
+  .notif .n-time { font-size: 11px; color: var(--muted); }
+
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 8px; }
+  .legend div { font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+
+  .before-after { display: flex; gap: 16px; flex-wrap: wrap; }
+  .ba { flex: 1 1 300px; border-radius: 12px; padding: 14px 16px; font-size: 13.5px; }
+  .ba.before { background: #fff5f5; border: 1px solid #fecaca; }
+  .ba.after { background: var(--green-bg); border: 1px solid #bbf7d0; }
+  .ba h4 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+  .ba.before h4 { color: var(--red); }
+  .ba.after h4 { color: var(--green); }
+  .ba ul { margin: 0; padding-left: 18px; }
+  .ba li { margin-bottom: 5px; }
+
+  footer { text-align: center; padding: 30px; color: var(--muted); font-size: 12.5px; }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>What your people actually see</h1>
+  <p>A walkthrough of every screen that changes once tasks carry a shift and an area, and deadlines come from each branch's own clock. Mocked with your real branches and tasks. Nothing here is live yet.</p>
+</header>
+
+<nav class="tabs">
+  <button class="active" data-screen="onboarding">1. Signing up</button>
+  <button data-screen="branch">2. Setting up a branch</button>
+  <button data-screen="task">3. Creating a task</button>
+  <button data-screen="phone">4. The branch phone</button>
+  <button data-screen="owner">5. Your dashboard</button>
+  <button data-screen="notif">6. The notification</button>
+  <button data-screen="summary">Before / after</button>
+</nav>
+
+<main>
+
+<!-- 1. ONBOARDING -->
+<section class="screen active" id="onboarding">
+  <div class="screen-intro">
+    <h2>Signing up: one extra step, already filled in</h2>
+    <p>This appears once, right after the restaurant is created. The whole point is that an owner in a hurry taps Continue and never thinks about it again. Nothing is an empty form.</p>
+  </div>
+
+  <div class="row">
+    <div class="col">
+      <div class="card card-pad">
+        <h3>How does your day run?</h3>
+        <p class="sub">These become the deadlines for the work you assign. You can change them any time.</p>
+
+        <div class="shift-line" style="border-bottom:1px solid var(--line);color:var(--muted);font-size:12px;font-weight:600;">
+          <div>SHIFT</div><div>STARTS</div><div></div><div>ENDS</div><div></div>
+        </div>
+        <div class="shift-line">
+          <div class="shift-name">Opening</div>
+          <input class="input" value="09:00" />
+          <div class="arrow">→</div>
+          <input class="input" value="12:00" />
+          <span class="chip grey">remove</span>
+        </div>
+        <div class="shift-line">
+          <div class="shift-name">Mid</div>
+          <input class="input" value="12:00" />
+          <div class="arrow">→</div>
+          <input class="input" value="18:00" />
+          <span class="chip grey">remove</span>
+        </div>
+        <div class="shift-line">
+          <div class="shift-name">Closing</div>
+          <input class="input" value="18:00" />
+          <div class="arrow">→</div>
+          <input class="input" value="23:00" />
+          <span class="chip grey">remove</span>
+        </div>
+
+        <div style="margin-top:14px;">
+          <button class="btn ghost">+ Add another shift</button>
+        </div>
+
+        <div class="note" style="margin-bottom:0;">
+          <strong>Open 24 hours?</strong> Delete Closing and name your shifts whatever you call them — Morning, Afternoon, Graveyard. Tasks are tied to whatever shifts exist, so nothing breaks.
+        </div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="card card-pad">
+        <h3>What areas is the restaurant divided into?</h3>
+        <p class="sub">Work gets grouped by these on the branch phone, so staff see one short list per area instead of one long list.</p>
+
+        <div class="checkline"><input type="checkbox" checked /> <span>Kitchen</span></div>
+        <div class="checkline"><input type="checkbox" checked /> <span>Dining area</span></div>
+        <div class="checkline"><input type="checkbox" checked /> <span>Counter</span></div>
+        <div class="checkline"><input type="checkbox" checked /> <span>Restroom</span></div>
+        <div class="checkline"><input type="checkbox" /> <span>Storage</span></div>
+        <div class="checkline"><input type="checkbox" /> <span>Back of house</span></div>
+
+        <div style="margin-top:14px;">
+          <button class="btn ghost">+ Add your own area</button>
+        </div>
+
+        <div style="margin-top:22px;display:flex;gap:10px;">
+          <button class="btn">Continue</button>
+          <button class="btn secondary">Skip, use these defaults</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <strong>The nuance:</strong> these names belong to the business, not to one branch. Each branch then says which of them it actually runs and at what times — that is the next screen. It is what lets one task, "Set up rat traps", land at the right hour in every location without you writing it out three times.
+  </div>
+</section>
+
+<!-- 2. BRANCH -->
+<section class="screen" id="branch">
+  <div class="screen-intro">
+    <h2>Setting up a branch: same names, its own clock</h2>
+    <p>Reached from Outlet Management, and shown automatically when you add a branch. A branch only receives work for the shifts it runs and the areas it has.</p>
+  </div>
+
+  <div class="row">
+    <div class="col">
+      <div class="card card-pad">
+        <h3>Cucina Mabini</h3>
+        <p class="sub">Mabini Complex</p>
+
+        <div style="font-size:12px;font-weight:700;color:var(--muted);margin:18px 0 6px;">SHIFTS THIS BRANCH RUNS</div>
+        <div class="shift-line">
+          <div><input type="checkbox" checked /> <span class="shift-name" style="margin-left:6px;">Opening</span></div>
+          <input class="input" value="09:00" /><div class="arrow">→</div><input class="input" value="12:00" /><span></span>
+        </div>
+        <div class="shift-line">
+          <div><input type="checkbox" checked /> <span class="shift-name" style="margin-left:6px;">Mid</span></div>
+          <input class="input" value="12:00" /><div class="arrow">→</div><input class="input" value="18:00" /><span></span>
+        </div>
+        <div class="shift-line">
+          <div><input type="checkbox" checked /> <span class="shift-name" style="margin-left:6px;">Closing</span></div>
+          <input class="input" value="18:00" /><div class="arrow">→</div><input class="input" value="23:00" /><span></span>
+        </div>
+
+        <div style="font-size:12px;font-weight:700;color:var(--muted);margin:22px 0 6px;">AREAS THIS BRANCH HAS</div>
+        <div class="checkline"><input type="checkbox" checked /> <span>Kitchen</span></div>
+        <div class="checkline"><input type="checkbox" checked /> <span>Dining area</span></div>
+        <div class="checkline"><input type="checkbox" checked /> <span>Counter</span></div>
+        <div class="checkline"><input type="checkbox" checked /> <span>Restroom</span></div>
+
+        <div style="margin-top:20px;"><button class="btn">Save branch</button></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="card card-pad">
+        <h3>Cucina Abz</h3>
+        <p class="sub">An example of a branch that runs late</p>
+
+        <div style="font-size:12px;font-weight:700;color:var(--muted);margin:18px 0 6px;">SHIFTS THIS BRANCH RUNS</div>
+        <div class="shift-line">
+          <div><input type="checkbox" checked /> <span class="shift-name" style="margin-left:6px;">Opening</span></div>
+          <input class="input" value="10:00" /><div class="arrow">→</div><input class="input" value="13:00" /><span></span>
+        </div>
+        <div class="shift-line">
+          <div><input type="checkbox" /> <span class="shift-name" style="margin-left:6px;color:var(--muted);">Mid</span></div>
+          <input class="input" value="" disabled /><div class="arrow">→</div><input class="input" value="" disabled /><span></span>
+        </div>
+        <div class="shift-line">
+          <div><input type="checkbox" checked /> <span class="shift-name" style="margin-left:6px;">Closing</span></div>
+          <input class="input" value="22:00" /><div class="arrow">→</div><input class="input" value="02:00" /><span class="chip amber">next day</span>
+        </div>
+
+        <div class="note" style="margin-top:16px;">
+          <strong>Closing runs past midnight.</strong> The app files this shift under Saturday because that is the night it belongs to, but the deadline itself is 2am Sunday. The branch sees it on Saturday evening's list, and it does not count as late until 2am. You do not have to think about this — it just needs to be right, and getting it wrong quietly is how dates break.
+        </div>
+
+        <div style="font-size:12px;font-weight:700;color:var(--muted);margin:22px 0 6px;">AREAS THIS BRANCH HAS</div>
+        <div class="checkline"><input type="checkbox" checked /> <span>Kitchen</span></div>
+        <div class="checkline"><input type="checkbox" checked /> <span>Dining area</span></div>
+        <div class="checkline"><input type="checkbox" /> <span style="color:var(--muted);">Counter <span class="chip grey">not at this branch</span></span></div>
+        <div class="checkline"><input type="checkbox" checked /> <span>Restroom</span></div>
+
+        <div class="note" style="margin-bottom:0;">
+          Because Counter is unticked here, any task filed under Counter simply never appears at Cucina Abz. No error, no empty checklist.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 3. TASK -->
+<section class="screen" id="task">
+  <div class="screen-intro">
+    <h2>Creating a task: the lazy path is one dropdown</h2>
+    <p>Shift and area are required. Everything else has a sensible answer already filled in, so a task you do not care much about takes about four seconds.</p>
+  </div>
+
+  <div class="row">
+    <div class="col" style="flex: 1 1 520px;">
+      <div class="card card-pad">
+        <h3>New task</h3>
+        <p class="sub">This becomes work at every branch that runs the shift and has the area.</p>
+
+        <div class="field">
+          <label class="fld">Task name</label>
+          <input class="input" value="Set up rat traps" />
+        </div>
+        <div class="field">
+          <label class="fld">Description</label>
+          <input class="input" value="Place and check all traps before locking up" />
+        </div>
+
+        <div class="row" style="gap:14px;">
+          <div class="col" style="min-width:200px;">
+            <div class="field">
+              <label class="fld">Shift</label>
+              <select class="select">
+                <option>Opening</option>
+                <option>Mid</option>
+                <option selected>Closing</option>
+              </select>
+              <div class="hint">Due by the end of this shift, at each branch's own time.</div>
+            </div>
+          </div>
+          <div class="col" style="min-width:200px;">
+            <div class="field">
+              <label class="fld">Area <span style="color:var(--red)">*</span></label>
+              <select class="select">
+                <option selected>Kitchen</option>
+                <option>Dining area</option>
+                <option>Counter</option>
+                <option>Restroom</option>
+              </select>
+              <div class="hint">Which checklist it shows up in.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="fld">Exact time (optional)</label>
+          <input class="input" placeholder="Leave empty — uses the end of the Closing shift" />
+          <div class="hint">Setting a time here overrides every branch. Use it when the hour matters more than the shift, like a 9am freezer reading.</div>
+        </div>
+
+        <div class="field">
+          <label class="fld">Which branches?</label>
+          <div class="pill-row" style="margin-bottom:8px;">
+            <span class="chip indigo">All branches that qualify</span>
+            <span class="chip grey">Cucina Mabini</span>
+            <span class="chip grey">Cucina Abz</span>
+          </div>
+          <div class="hint">Leave it on all, and shift plus area already do the filtering. Pick specific branches only when one location is genuinely different.</div>
+        </div>
+
+        <div class="row" style="gap:14px;">
+          <div class="col" style="min-width:200px;">
+            <div class="field">
+              <label class="fld">Repeats</label>
+              <select class="select"><option selected>Every day</option><option>Does not repeat</option></select>
+            </div>
+          </div>
+          <div class="col" style="min-width:200px;">
+            <div class="field">
+              <label class="fld">High priority</label>
+              <select class="select"><option selected>Yes</option><option>No</option></select>
+            </div>
+          </div>
+        </div>
+
+        <button class="btn">Create task</button>
+        <button class="btn secondary">Cancel</button>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="card card-pad">
+        <h3>What this task becomes tonight</h3>
+        <p class="sub">Generated automatically at 12:07am, branch by branch. You never press anything.</p>
+
+        <div class="task-row">
+          <div class="box"></div>
+          <div>
+            <div class="task-title">Cucina Mabini · Kitchen</div>
+            <div class="task-meta"><span class="chip grey">due 23:00 tonight</span> from Closing 18:00–23:00</div>
+          </div>
+        </div>
+        <div class="task-row">
+          <div class="box"></div>
+          <div>
+            <div class="task-title">Cucina Abz · Kitchen</div>
+            <div class="task-meta"><span class="chip amber">due 02:00 tomorrow</span> from Closing 22:00–02:00</div>
+          </div>
+        </div>
+        <div class="task-row" style="opacity:.6;">
+          <div class="box" style="border-style:dashed;"></div>
+          <div>
+            <div class="task-title">QA Second Branch</div>
+            <div class="task-meta">skipped — this branch has no Kitchen area</div>
+          </div>
+        </div>
+
+        <div class="note" style="margin-bottom:0;">
+          One task, written once. Three branches, three different right answers.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 4. PHONE -->
+<section class="screen" id="phone">
+  <div class="screen-intro">
+    <h2>The branch phone: short lists, closest deadline first</h2>
+    <p>Whoever is on shift picks up the store phone. No projects, no priorities to set, no create button. One list per area, ordered by what is due soonest.</p>
+  </div>
+
+  <div class="row">
+    <div style="flex:0 0 auto;">
+      <div class="phone">
+        <div class="phone-status"><span>3:12 PM</span><span>Cucina Mabini</span></div>
+        <div class="phone-head">
+          <div class="who">Saturday 8 August · Mid shift</div>
+          <div class="title">Today</div>
+          <div style="margin-top:8px;display:flex;gap:6px;">
+            <span class="chip red" style="background:rgba(255,255,255,.16);color:#fff;border-color:transparent;">1 late</span>
+            <span class="chip grey" style="background:rgba(255,255,255,.16);color:#fff;border-color:transparent;">6 to do</span>
+            <span class="chip green" style="background:rgba(255,255,255,.16);color:#fff;border-color:transparent;">4 done</span>
+          </div>
+        </div>
+        <div class="phone-body">
+
+          <div class="area-group">
+            <div class="area-head"><span>Kitchen</span><span>2 of 5 done</span></div>
+
+            <div class="task-row late">
+              <div class="box"></div>
+              <div class="grow">
+                <div class="task-title">Opener Water Meter Check</div>
+                <div class="task-meta">
+                  <span class="chip red">5h 42m late</span>
+                  <span>was due 09:30 · Jobert Magtana</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="task-row">
+              <div class="box"></div>
+              <div class="grow">
+                <div class="task-title">Set up rat traps</div>
+                <div class="task-meta"><span class="chip grey">due 23:00</span><span>7h 48m left · unclaimed</span></div>
+              </div>
+            </div>
+
+            <div class="task-row">
+              <div class="box"></div>
+              <div class="grow">
+                <div class="task-title">Closer Turn off Samsung AC</div>
+                <div class="task-meta"><span class="chip grey">due 23:00</span><span>unclaimed</span></div>
+              </div>
+            </div>
+
+            <div class="task-row done">
+              <div class="box checked">✓</div>
+              <div class="grow">
+                <div class="task-title struck">Opener Electrical Meter check</div>
+                <div class="task-meta">09:12 by Anabel Baquiran · photo attached</div>
+              </div>
+            </div>
+
+            <div class="task-row done">
+              <div class="box checked">✓</div>
+              <div class="grow">
+                <div class="task-title struck">Check freezer seals</div>
+                <div class="task-meta">11:40 by Mary Joy Tayong</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="area-group">
+            <div class="area-head"><span>Dining area</span><span>1 of 3 done</span></div>
+            <div class="task-row">
+              <div class="box"></div>
+              <div class="grow">
+                <div class="task-title">Closer Turn off Kolin AC</div>
+                <div class="task-meta"><span class="chip grey">due 23:00</span><span>Norvie Relampagos</span></div>
+              </div>
+            </div>
+            <div class="task-row">
+              <div class="box"></div>
+              <div class="grow">
+                <div class="task-title">Wipe down and stack chairs</div>
+                <div class="task-meta"><span class="chip grey">due 23:00</span><span>unclaimed</span></div>
+              </div>
+            </div>
+            <div class="task-row done">
+              <div class="box checked">✓</div>
+              <div class="grow">
+                <div class="task-title struck">Restock napkins</div>
+                <div class="task-meta">13:05 by Arlene</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="area-group">
+            <div class="area-head"><span>Restroom</span><span>1 of 2 done</span></div>
+            <div class="task-row">
+              <div class="box"></div>
+              <div class="grow">
+                <div class="task-title">Evening restroom inspection</div>
+                <div class="task-meta"><span class="chip grey">due 23:00</span><span>photo required</span></div>
+              </div>
+            </div>
+            <div class="task-row done">
+              <div class="box checked">✓</div>
+              <div class="grow">
+                <div class="task-title struck">Morning restroom inspection</div>
+                <div class="task-meta">09:48 by Georex Romao · photo attached</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="card card-pad">
+        <h3>What changed here</h3>
+        <p class="sub">Compared with the screen your staff use today.</p>
+        <ul style="font-size:14px;padding-left:18px;margin:0;">
+          <li style="margin-bottom:9px;">Grouped by <strong>area</strong>, not by status. Someone working the kitchen reads one short list.</li>
+          <li style="margin-bottom:9px;">Sorted by <strong>closest deadline</strong>. Today the order is whatever the database returned.</li>
+          <li style="margin-bottom:9px;">Each row shows <strong>time remaining</strong>, which is only possible now that tasks have a time at all.</li>
+          <li style="margin-bottom:9px;">Late work turns red <strong>on this device immediately</strong> — this is the branch's own nudge, before you are ever told.</li>
+          <li>Unclaimed work says so, and tapping it lets whoever is doing it put their name on it.</li>
+        </ul>
+
+        <div class="note" style="margin-bottom:0;">
+          <strong>Deliberately absent:</strong> no create-task button, no priority picker, no subtasks, no filters to configure. They are running a restaurant, not project management software.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 5. OWNER -->
+<section class="screen" id="owner">
+  <div class="screen-intro">
+    <h2>Your dashboard: answer "is anything wrong" before "what is everything"</h2>
+    <p>Branches that are fine collapse to one line. You should be able to close the app in four seconds on a good day.</p>
+  </div>
+
+  <div class="card card-pad" style="margin-bottom:18px;">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+      <div>
+        <h3 style="font-size:20px;">Saturday, 8 August · 3:12 PM</h3>
+        <p class="sub" style="margin:0;">3 branches operating normally · 1 needs attention</p>
+      </div>
+      <div class="legend">
+        <div><span class="dot green"></span> on track</div>
+        <div><span class="dot amber"></span> finished late</div>
+        <div><span class="dot red"></span> still outstanding</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="branch-card problem">
+    <span class="dot red"></span>
+    <div class="grow">
+      <div class="branch-name">Cucina Mabini</div>
+      <div class="branch-sub">1 task past its deadline</div>
+    </div>
+    <span class="chip red">needs you</span>
+  </div>
+
+  <div class="issue">
+    <div class="issue-title">Opener Water Meter Check — 5 hours 42 minutes late</div>
+    <div class="issue-line">Kitchen · assigned to Jobert Magtana · was due 09:30</div>
+    <div class="timeline">
+      <div class="tl">09:30 — <b>deadline passed</b>, went red on the branch phone</div>
+      <div class="tl">10:00 — still not done, <b>flagged to you</b> after the 30 minute grace window</div>
+      <div class="tl">10:00 — notification sent to your phone</div>
+      <div class="tl">now — <b>still unresolved</b></div>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn" style="padding:7px 14px;font-size:13px;">Reassign</button>
+      <button class="btn secondary" style="padding:7px 14px;font-size:13px;">Give more time</button>
+      <button class="btn secondary" style="padding:7px 14px;font-size:13px;">Call the branch</button>
+    </div>
+  </div>
+
+  <div style="height:18px;"></div>
+
+  <div class="branch-card">
+    <span class="dot amber"></span>
+    <div class="grow">
+      <div class="branch-name">Cucina Abz</div>
+      <div class="branch-sub">Everything done · 1 finished 22 minutes late</div>
+    </div>
+    <span class="chip amber">worth a look</span>
+  </div>
+
+  <div class="branch-card">
+    <span class="dot green"></span>
+    <div class="grow">
+      <div class="branch-name">QA Test Branch</div>
+      <div class="branch-sub">5 of 7 done, nothing overdue</div>
+    </div>
+    <span class="chip green">on track</span>
+  </div>
+
+  <div class="branch-card">
+    <span class="dot green"></span>
+    <div class="grow">
+      <div class="branch-name">QA Second Branch</div>
+      <div class="branch-sub">4 of 5 done, nothing overdue</div>
+    </div>
+    <span class="chip green">on track</span>
+  </div>
+
+  <div class="note">
+    <strong>The 30 minute grace window matters.</strong> Something due at 09:30 and finished at 09:41 never reaches you at all — the branch saw it go red and dealt with it. You are only interrupted for work that is genuinely stuck. That is the difference between a useful alert and one you learn to ignore.
+  </div>
+
+  <div class="card card-pad">
+    <h3>Recurring problems</h3>
+    <p class="sub">Only possible once tasks have deadlines, so lateness can be measured. Last 30 days.</p>
+    <div class="task-row">
+      <div class="grow">
+        <div class="task-title">Closer Set Up Rat Traps · Cucina Mabini</div>
+        <div class="task-meta">30 expected · 28 done · <span class="chip green">21 on time</span> <span class="chip amber">7 late</span> <span class="chip red">2 missed</span></div>
+        <div class="task-meta">Most often missed by Jobert Magtana (4) · worst day: Sunday</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 6. NOTIFICATION -->
+<section class="screen" id="notif">
+  <div class="screen-intro">
+    <h2>The notification: the part that makes the promise true</h2>
+    <p>Without this, the app can only tell you something is wrong once you decide to look — which is the habit it is supposed to replace. Sent from the installed app itself, so there is no SMS bill and no third party.</p>
+  </div>
+
+  <div class="row">
+    <div style="flex:0 0 auto;">
+      <div class="lock">
+        <div class="clock">10:00</div>
+        <div class="date">Saturday, 8 August</div>
+
+        <div class="notif" style="margin-bottom:10px;">
+          <div class="ico">TA</div>
+          <div class="grow">
+            <div class="n-title">Cucina Mabini needs attention</div>
+            <div class="n-body">Water meter check still not done, 30 minutes past its deadline.</div>
+            <div class="n-time">now</div>
+          </div>
+        </div>
+
+        <div class="notif" style="opacity:.75;">
+          <div class="ico">TA</div>
+          <div class="grow">
+            <div class="n-title">Last night closed clean</div>
+            <div class="n-body">All 3 branches finished every closing task.</div>
+            <div class="n-time">7:00 AM</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="card card-pad">
+        <h3>What gets sent, and what does not</h3>
+        <p class="sub">The rule is that a notification must be worth the interruption.</p>
+        <ul style="font-size:14px;padding-left:18px;margin:0 0 16px;">
+          <li style="margin-bottom:9px;"><strong>Sent:</strong> work still outstanding 30 minutes past its deadline.</li>
+          <li style="margin-bottom:9px;"><strong>Sent once a day, optional:</strong> a morning summary of how last night closed.</li>
+          <li style="margin-bottom:9px;"><strong>Not sent:</strong> anything finished inside the grace window.</li>
+          <li style="margin-bottom:9px;"><strong>Not sent:</strong> ordinary completions. You do not need to know the bins went out, only that they did not.</li>
+          <li><strong>Not sent to staff.</strong> They have no accounts and no app. The branch phone showing red is their nudge.</li>
+        </ul>
+
+        <div class="note" style="margin-bottom:0;">
+          <strong>Honest limitation:</strong> this arrives reliably on Android and desktop. On iPhone it only works if you add the app to your home screen first, which is an Apple restriction rather than a choice. If that matters, the alternative is paying per message for WhatsApp or Viber, which we can add later without changing anything else.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SUMMARY -->
+<section class="screen" id="summary">
+  <div class="screen-intro">
+    <h2>Before and after</h2>
+    <p>What is genuinely different once this ships.</p>
+  </div>
+
+  <div class="before-after">
+    <div class="ba before">
+      <h4>Today</h4>
+      <ul>
+        <li>Tasks have no time, so nothing is late until midnight.</li>
+        <li>"22 minutes late" cannot be expressed or measured.</li>
+        <li>Staff see one long list ordered by whatever came back from the database.</li>
+        <li>Your dashboard shows totals for everything and never says which branch has a problem.</li>
+        <li>You find out something was missed by opening the app and reading.</li>
+        <li>A closing task and an opening task are indistinguishable to the system.</li>
+      </ul>
+    </div>
+    <div class="ba after">
+      <h4>After</h4>
+      <ul>
+        <li>Every task is due at a real hour, set once per shift per branch.</li>
+        <li>On time, late and missed become numbers you can see per person and per weekday.</li>
+        <li>Staff see one short checklist per area, closest deadline first.</li>
+        <li>Your dashboard leads with the branch that needs you and hides the ones that do not.</li>
+        <li>Your phone tells you, 30 minutes after a deadline is blown.</li>
+        <li>A 24-hour branch, or one with no counter, gets exactly the work that applies to it.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="note">
+    <strong>What this still is not.</strong> No proof that someone physically stood at the freezer, and no temperature readings — you set both aside for now. Both stay easy to add later, and neither blocks anything above.
+  </div>
+
+  <div class="card card-pad" style="margin-top:18px;">
+    <h3>Order of work</h3>
+    <p class="sub">Each stage is useful and verifiable on its own.</p>
+    <ol style="font-size:14px;padding-left:20px;margin:0;">
+      <li style="margin-bottom:7px;">Database: shifts, areas, deadline rules, and the nightly job that builds tomorrow's work. Provable before a single screen changes.</li>
+      <li style="margin-bottom:7px;">The setup screens — screens 1 and 2 here.</li>
+      <li style="margin-bottom:7px;">The task form — screen 3.</li>
+      <li style="margin-bottom:7px;">The branch phone — screen 4, the largest piece of visual work.</li>
+      <li style="margin-bottom:7px;">Your exceptions dashboard — screen 5.</li>
+      <li>Notifications — screen 6, last because everything above works without it.</li>
+    </ol>
+  </div>
+</section>
+
+</main>
+
+<footer>Mockup only — nothing here is wired to your data. Built from the agreed plan on 8 August 2026.</footer>
+
+<script>
+  document.querySelectorAll('nav.tabs button').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('nav.tabs button').forEach(function (b) { b.classList.remove('active'); });
+      document.querySelectorAll('section.screen').forEach(function (s) { s.classList.remove('active'); });
+      btn.classList.add('active');
+      document.getElementById(btn.dataset.screen).classList.add('active');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  });
+</script>
+
+</body>
+</html>
