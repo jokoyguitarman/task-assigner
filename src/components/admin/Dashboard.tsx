@@ -48,6 +48,7 @@ import Leaderboard from './Leaderboard';
 import AssignmentForm from './AssignmentForm';
 import RescheduleRequests from './RescheduleRequests';
 import BranchExceptions from './BranchExceptions';
+import AlertToggle from '../common/AlertToggle';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { realtimeService } from '../../services/realtimeService';
 
@@ -229,6 +230,8 @@ const AdminDashboard: React.FC = () => {
         </Box>
       </Fade>
 
+
+      <AlertToggle />
 
       <BranchExceptions
         assignments={assignments}
