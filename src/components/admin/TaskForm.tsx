@@ -378,9 +378,15 @@ const TaskForm: React.FC<TaskFormProps> = ({ taskId, onSuccess, onCancel }) => {
                           label="Recurring Pattern"
                         >
                           <MenuItem value="daily">Daily</MenuItem>
-                          <MenuItem value="weekly">Weekly</MenuItem>
-                          <MenuItem value="monthly">Monthly</MenuItem>
+                          {/* Weekly and monthly are deliberately absent. Neither
+                              has a day to anchor to in the schema, so the job that
+                              creates each day's work would never produce them —
+                              and a task that silently never appears is worse than
+                              one the form refuses to promise. */}
                         </Select>
+                        <FormHelperText>
+                          Only daily repeats for now. For anything else, create it when you need it.
+                        </FormHelperText>
                       </FormControl>
                     )}
                   />

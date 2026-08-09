@@ -115,6 +115,18 @@ export interface TaskAssignment {
   outlet?: Outlet;
 }
 
+// Work whose assignee will not be there to do it. Detected before the deadline
+// passes, so there is still time to hand it to somebody else.
+export interface CoverageGap {
+  assignmentId: string;
+  outletName: string;
+  taskTitle: string;
+  staffName: string;
+  businessDay: Date;
+  dueTime?: string;
+  reason: string;
+}
+
 // Every change of ownership on an assignment, written by the database rather than
 // the client so it cannot be edited or removed afterwards. The reason is required
 // when a branch takes work off someone, and optional when the owner reassigns.

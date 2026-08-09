@@ -48,6 +48,7 @@ import Leaderboard from './Leaderboard';
 import AssignmentForm from './AssignmentForm';
 import RescheduleRequests from './RescheduleRequests';
 import BranchExceptions from './BranchExceptions';
+import CoverageGaps from './CoverageGaps';
 import AlertToggle from '../common/AlertToggle';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { realtimeService } from '../../services/realtimeService';
@@ -63,6 +64,9 @@ const AdminDashboard: React.FC = () => {
   const [selectedAssignmentForDetails, setSelectedAssignmentForDetails] = useState<TaskAssignment | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [showAssignmentForm, setShowAssignmentForm] = useState(false);
+  // Set when handing over work whose owner will not be there, which opens the
+  // assignment form on that specific job rather than a blank one.
+  const [reassigningId, setReassigningId] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -232,6 +236,11 @@ const AdminDashboard: React.FC = () => {
 
 
       <AlertToggle />
+
+      <CoverageGaps
+        refreshKey={assignments.length}
+        onReassign={(assignmentId) => setReassigningId(assignmentId)}
+      />
 
       <BranchExceptions
         assignments={assignments}
@@ -868,16 +877,18 @@ const AdminDashboard: React.FC = () => {
       </Dialog>
 
       {/* Assignment Form Dialog */}
-      <Dialog 
-        open={showAssignmentForm} 
-        onClose={() => setShowAssignmentForm(false)}
+      <Dialog
+        open={showAssignmentForm || !!reassigningId}
+        onClose={() => { setShowAssignmentForm(false); setReassigningId(null); }}
         maxWidth="md"
         fullWidth
       >
         <AssignmentForm
-          onCancel={() => setShowAssignmentForm(false)}
+          assignmentId={reassigningId ?? undefined}
+          onCancel={() => { setShowAssignmentForm(false); setReassigningId(null); }}
           onSuccess={() => {
             setShowAssignmentForm(false);
+            setReassigningId(null);
             loadData(); // Refresh the assignments list
           }}
         />

@@ -5,7 +5,7 @@ import {
   User, Task, TaskAssignment, Organization,
   StaffPosition, Outlet, StaffProfile, MonthlySchedule, 
   DailySchedule, TaskCompletionProof, Invitation, PublicInvitation, InvitationFormData,
-  Reassignment, ShiftDefinition, Area, OutletShift
+  Reassignment, ShiftDefinition, Area, OutletShift, CoverageGap
 } from '../types';
 
 // Helper function to check if Supabase is configured
@@ -1028,6 +1028,29 @@ export const assignmentsAPI = {
     if (error) throw error;
 
     return transformTaskAssignment(data);
+  },
+};
+
+// Work assigned to somebody who will not be there — on a day off, or rostered at a
+// different branch that day. Computed in the database rather than the browser so
+// the same answer is available to the scheduled job that raises the warning.
+export const coverageAPI = {
+  async getGaps(): Promise<CoverageGap[]> {
+    if (!isSupabaseConfigured()) return [];
+
+    const { data, error } = await supabase.rpc('coverage_gaps');
+
+    if (error) throw error;
+
+    return (data ?? []).map((row: any) => ({
+      assignmentId: row.id,
+      outletName: row.outlet_name,
+      taskTitle: row.task_title,
+      staffName: row.staff_name,
+      businessDay: parseDateOnly(row.business_day),
+      dueTime: row.due_time ? hhmm(row.due_time) : undefined,
+      reason: row.reason,
+    }));
   },
 };
 
