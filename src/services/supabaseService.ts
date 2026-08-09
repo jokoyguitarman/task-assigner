@@ -459,6 +459,30 @@ export const organizationsAPI = {
     return transformOrganization(data);
   },
 
+  // Only the name and the timezone. The subscription tier and its limits are
+  // deliberately not updatable here — column grants stop it at the database, so
+  // an owner cannot award themselves a bigger plan.
+  async update(id: string, changes: { name?: string; timezone?: string }): Promise<Organization | null> {
+    if (!isSupabaseConfigured()) {
+      throw new Error('Supabase not configured');
+    }
+
+    const payload: Record<string, string> = {};
+    if (changes.name !== undefined) payload.name = changes.name.trim();
+    if (changes.timezone !== undefined) payload.timezone = changes.timezone;
+
+    const { data, error } = await supabase
+      .from('organizations')
+      .update(payload)
+      .eq('id', id)
+      .select()
+      .maybeSingle();
+
+    if (error) throw error;
+
+    return data ? transformOrganization(data) : null;
+  },
+
   // Turns a bare auth account into the owner of a new organization. Runs
   // server-side so the subscription tier and its limits are not client-supplied,
   // and refuses to run twice for the same account.
@@ -1028,6 +1052,41 @@ export const assignmentsAPI = {
     if (error) throw error;
 
     return transformTaskAssignment(data);
+  },
+};
+
+// When the owner wants their morning summary, in the restaurant's own time.
+export const digestAPI = {
+  async get(userId: string): Promise<{ sendAt: string; enabled: boolean } | null> {
+    if (!isSupabaseConfigured()) return null;
+
+    const { data, error } = await supabase
+      .from('digest_preferences')
+      .select('send_at, enabled')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return null;
+
+    return { sendAt: hhmm(data.send_at), enabled: data.enabled };
+  },
+
+  async save(userId: string, organizationId: string, sendAt: string, enabled: boolean): Promise<void> {
+    if (!isSupabaseConfigured()) throw new Error('Supabase not configured');
+
+    const { error } = await supabase.from('digest_preferences').upsert(
+      {
+        user_id: userId,
+        organization_id: organizationId,
+        send_at: sendAt,
+        enabled,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' }
+    );
+
+    if (error) throw error;
   },
 };
 

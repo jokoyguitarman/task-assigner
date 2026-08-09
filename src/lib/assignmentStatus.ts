@@ -1,4 +1,5 @@
 import { TaskAssignment } from '../types';
+import { toDateOnly, zonedWallClockToInstant } from './dates';
 
 // One definition of "late". Four slightly different ones used to be inlined in
 // Dashboard, AssignmentList and StaffDashboard, which is why the same task could
@@ -7,16 +8,24 @@ import { TaskAssignment } from '../types';
 // The moment an assignment stops being on time. A task due at 23:00 is not late
 // at 18:00, but it is late at 23:30 — the point of collecting a due time. With
 // no due time the deadline is the end of the due day.
+//
+// Resolved in the restaurant's timezone, not the device's. This used to read the
+// browser clock, which meant a tablet set to the wrong zone, or an owner abroad,
+// would disagree with the database about whether work was late — and the database
+// is the one that flips the status and sends the alert.
 export const deadlineOf = (assignment: TaskAssignment): Date => {
-  const due = new Date(assignment.dueDate);
-  const deadline = new Date(due.getFullYear(), due.getMonth(), due.getDate());
-
+  const day = toDateOnly(new Date(assignment.dueDate));
   const match = assignment.dueTime && /^(\d{1,2}):(\d{2})/.exec(assignment.dueTime);
-  if (match) {
-    deadline.setHours(Number(match[1]), Number(match[2]), 0, 0);
-  } else {
-    deadline.setHours(23, 59, 59, 999);
-  }
+
+  const time = match
+    ? `${String(Number(match[1])).padStart(2, '0')}:${match[2]}`
+    : '23:59';
+
+  const deadline = zonedWallClockToInstant(day, time);
+
+  // Without a due time the deadline is the very end of the day, so that a task
+  // finished at 23:59:30 is not counted late by half a minute.
+  if (!match) deadline.setSeconds(59, 999);
 
   return deadline;
 };
@@ -68,11 +77,7 @@ export const statusLabel = (status: EffectiveStatus): string => {
   }
 };
 
-export const isDueToday = (assignment: TaskAssignment, now: Date = new Date()): boolean => {
-  const due = new Date(assignment.dueDate);
-  return (
-    due.getFullYear() === now.getFullYear() &&
-    due.getMonth() === now.getMonth() &&
-    due.getDate() === now.getDate()
-  );
-};
+// "Today" is the restaurant's today. Comparing formatted calendar days rather
+// than date components keeps this consistent with how the deadline is resolved.
+export const isDueToday = (assignment: TaskAssignment, now: Date = new Date()): boolean =>
+  toDateOnly(new Date(assignment.dueDate)) === toDateOnly(now);

@@ -15,6 +15,8 @@ import {
 import { Schedule, Place, Delete, Add } from '@mui/icons-material';
 import { shiftsAPI, areasAPI } from '../../services/supabaseService';
 import { ShiftDefinition, Area } from '../../types';
+import BusinessDetails from './BusinessDetails';
+import DigestSettings from './DigestSettings';
 
 // The vocabulary the whole business shares. Branches then say which of these
 // they run and at what times, which is what lets one task land at the right hour
@@ -83,6 +85,9 @@ const BusinessSetup: React.FC = () => {
       </Box>
 
       {error && <Alert severity="error" sx={{ my: 2 }}>{error}</Alert>}
+
+      <BusinessDetails />
+      <DigestSettings />
 
       <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', mt: 3 }}>
         <Card sx={{ flex: '1 1 380px' }}>

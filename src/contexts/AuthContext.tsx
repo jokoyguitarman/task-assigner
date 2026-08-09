@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, Rea
 import { User, AuthContextType, Outlet, Organization } from '../types';
 import { authAPI, outletsAPI, organizationsAPI, ProfileNotProvisionedError } from '../services/supabaseService';
 import { readClaims } from '../lib/authClaims';
+import { setAppTimeZone } from '../lib/dates';
 import { supabase } from '../lib/supabase';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -77,6 +78,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     const org = await organizationsAPI.getById(claims.organizationId);
     setOrganization(org);
+
+    // Every date the app shows or compares is a calendar day in the restaurant's
+    // timezone, not the device's. Set here because it has to be in place before
+    // any screen works out whether something is overdue.
+    setAppTimeZone(org?.timezone);
 
     if (claims.role === 'outlet' && claims.outletId) {
       setIsOutletUser(true);

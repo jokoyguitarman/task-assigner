@@ -42,6 +42,7 @@ import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { staffProfilesAPI, staffPositionsAPI, outletsAPI } from '../../services/supabaseService';
 import { StaffProfile, StaffPosition, Outlet, StaffEnrollmentFormData } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
+import { tierLimitsService } from '../../services/tierLimitsService';
 
 const StaffEnrollment: React.FC = () => {
   const { user } = useAuth();
@@ -172,6 +173,13 @@ const StaffEnrollment: React.FC = () => {
           outletId: formData.outletId || undefined,
         });
       } else {
+        // Enforced in the database as well; this is only here so the answer reads
+        // like a sentence rather than a constraint violation.
+        if (!(await tierLimitsService.canAddEmployee(user!.organizationId))) {
+          setError('Your plan does not cover another person. Deactivate someone, or upgrade, to enrol this one.');
+          return;
+        }
+
         // Enrolling a staff member adds a row to the roster. It no longer
         // creates a login, an auth account or a placeholder email address: staff
         // work from the branch's shared phone, so there is nothing to sign in to.

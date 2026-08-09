@@ -36,6 +36,7 @@ import { outletsAPI } from '../../services/supabaseService';
 import { Outlet, OutletFormData } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
 import BranchSetup from './BranchSetup';
+import { tierLimitsService } from '../../services/tierLimitsService';
 
 const OutletManagement: React.FC = () => {
   const { user } = useAuth();
@@ -113,6 +114,14 @@ const OutletManagement: React.FC = () => {
       if (editingOutlet) {
         await outletsAPI.update(editingOutlet.id, formData);
       } else {
+        // The database refuses this too, which is what actually enforces the plan.
+        // Asking first only buys a message that explains the situation instead of a
+        // constraint error.
+        if (!(await tierLimitsService.canAddRestaurant(user!.organizationId))) {
+          setError('Your plan does not cover another branch. Deactivate one, or upgrade, to add this.');
+          return;
+        }
+
         await outletsAPI.create({ ...formData, isActive: true, organizationId: user!.organizationId });
       }
 
