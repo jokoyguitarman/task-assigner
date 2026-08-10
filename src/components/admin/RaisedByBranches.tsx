@@ -12,7 +12,8 @@ import {
 } from '@mui/material';
 import { Lightbulb, Repeat, Close } from '@mui/icons-material';
 import { raisedWorkAPI, taskCompletionProofsAPI } from '../../services/supabaseService';
-import { Task } from '../../types';
+import { RaisedItem } from '../../types';
+import WatchToggle from './WatchToggle';
 
 // What the branches have noticed themselves.
 //
@@ -29,7 +30,7 @@ interface Props {
 }
 
 const RaisedByBranches: React.FC<Props> = ({ onPromoted }) => {
-  const [items, setItems] = useState<Task[]>([]);
+  const [items, setItems] = useState<RaisedItem[]>([]);
   const [photos, setPhotos] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -137,7 +138,14 @@ const RaisedByBranches: React.FC<Props> = ({ onPromoted }) => {
               )}
             </Box>
 
-            <Box sx={{ display: 'flex', gap: 1 }}>
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              {task.assignmentId && (
+                <WatchToggle
+                  assignmentId={task.assignmentId}
+                  watching={!!task.ownerWatching}
+                  onChanged={load}
+                />
+              )}
               <Button
                 size="small"
                 variant="contained"

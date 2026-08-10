@@ -107,6 +107,10 @@ export interface TaskAssignment {
   // reassignment history and clears it, so it always reads back empty. A branch
   // must supply one to take work off someone who already owns it.
   reassignmentReason?: string;
+  // The owner asked to be kept posted on this particular job: told when it is
+  // finished, and told if it blows its deadline. Owner-only, enforced in the
+  // database — a branch able to set it could force alerts on itself.
+  ownerWatching?: boolean;
   // Reschedule request fields
   rescheduleRequestedAt?: Date;
   rescheduleReason?: string;
@@ -120,6 +124,14 @@ export interface TaskAssignment {
   task?: Task;
   staff?: StaffProfile;
   outlet?: Outlet;
+}
+
+// A branch-raised task together with the single job behind it, since the owner acts
+// on the job rather than the template.
+export interface RaisedItem extends Task {
+  assignmentId?: string;
+  assignmentStatus?: TaskAssignment['status'];
+  ownerWatching?: boolean;
 }
 
 // Work whose assignee will not be there to do it. Detected before the deadline

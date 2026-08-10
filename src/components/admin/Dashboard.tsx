@@ -50,6 +50,7 @@ import RescheduleRequests from './RescheduleRequests';
 import BranchExceptions from './BranchExceptions';
 import CoverageGaps from './CoverageGaps';
 import RaisedByBranches from './RaisedByBranches';
+import WatchToggle from './WatchToggle';
 import AlertToggle from '../common/AlertToggle';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { realtimeService } from '../../services/realtimeService';
@@ -864,6 +865,17 @@ const AdminDashboard: React.FC = () => {
           )}
         </DialogContent>
         <DialogActions>
+          {selectedAssignmentForDetails && (
+            <WatchToggle
+              assignmentId={selectedAssignmentForDetails.id}
+              watching={!!selectedAssignmentForDetails.ownerWatching}
+              onChanged={() => {
+                handleAssignmentDetailsClose();
+                loadData();
+              }}
+            />
+          )}
+          <Box sx={{ flex: 1 }} />
           <Button onClick={handleAssignmentDetailsClose}>
             Close
           </Button>

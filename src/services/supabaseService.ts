@@ -5,7 +5,7 @@ import {
   User, Task, TaskAssignment, Organization,
   StaffPosition, Outlet, StaffProfile, MonthlySchedule, 
   DailySchedule, TaskCompletionProof, Invitation, PublicInvitation, InvitationFormData,
-  Reassignment, ShiftDefinition, Area, OutletShift, CoverageGap
+  Reassignment, ShiftDefinition, Area, OutletShift, CoverageGap, RaisedItem
 } from '../types';
 
 // Helper function to check if Supabase is configured
@@ -104,6 +104,7 @@ const transformTaskAssignment = (row: any): TaskAssignment => ({
   completionProof: row.completion_proof,
   completionNotes: row.completion_notes || undefined,
   completedByStaffId: row.completed_by_staff_id || undefined,
+  ownerWatching: row.owner_watching || false,
   minutesDeducted: row.minutes_deducted,
   // Reschedule fields
   rescheduleRequestedAt: row.reschedule_requested_at ? new Date(row.reschedule_requested_at) : undefined,
@@ -972,6 +973,7 @@ export const assignmentsAPI = {
     // ownership and blanks the column, so a stale value cannot excuse a later
     // reassignment.
     if (assignmentData.reassignmentReason) updateData.reassignment_reason = assignmentData.reassignmentReason;
+    if (assignmentData.ownerWatching !== undefined) updateData.owner_watching = assignmentData.ownerWatching;
     if (assignmentData.minutesDeducted) updateData.minutes_deducted = assignmentData.minutesDeducted;
 
     const { data, error } = await supabase
@@ -1105,23 +1107,37 @@ export const raisedWorkAPI = {
     return data as string;
   },
 
-  // What the branches have raised, for the owner to promote or dismiss.
-  async getRaised(): Promise<Task[]> {
+  // What the branches have raised, for the owner to promote, dismiss or subscribe to.
+  // The single assignment behind each one comes along, since the owner acts on the job
+  // rather than the template.
+  async getRaised(): Promise<RaisedItem[]> {
     if (!isSupabaseConfigured()) return [];
 
     const { data, error } = await supabase
       .from('tasks')
-      .select(`${TASK_SELECT}, raised_outlet:raised_by_outlet_id (id, name), raised_staff:raised_by_staff_id (id, name)`)
+      .select(
+        `${TASK_SELECT},
+         raised_outlet:raised_by_outlet_id (id, name),
+         raised_staff:raised_by_staff_id (id, name),
+         assignments:task_assignments (id, status, owner_watching, due_date, due_time)`
+      )
       .not('raised_by_outlet_id', 'is', null)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
 
-    return data.map((row: any) => ({
-      ...transformTask(row),
-      raisedByOutletName: row.raised_outlet?.name,
-      raisedByStaffName: row.raised_staff?.name,
-    }));
+    return data.map((row: any) => {
+      const assignment = row.assignments?.[0];
+
+      return {
+        ...transformTask(row),
+        raisedByOutletName: row.raised_outlet?.name,
+        raisedByStaffName: row.raised_staff?.name,
+        assignmentId: assignment?.id,
+        assignmentStatus: assignment?.status,
+        ownerWatching: assignment?.owner_watching ?? false,
+      };
+    });
   },
 
   // Turning an observation into a standard is the owner's decision, and the only one
