@@ -274,6 +274,63 @@ export interface DailySchedule {
   outlet?: Outlet;
 }
 
+export type DayOffType = 'vacation' | 'sick' | 'personal' | 'other';
+
+// How far ahead a branch may publish its own roster. Past this it may still plot a
+// day, but the owner publishes it. The database decides the boundary; this copy only
+// shapes the UI, so a stale build cannot widen what a branch is allowed to do.
+export const BRANCH_ROSTER_HORIZON_DAYS = 14;
+
+// A day a branch plotted beyond its horizon, waiting on the owner. Deliberately not
+// part of the roster: nothing that reads schedules as fact can see it until approved.
+export interface ScheduleProposal {
+  id: string;
+  organizationId: string;
+  outletId: string;
+  staffId: string;
+  scheduleDate: Date;
+  isDayOff: boolean;
+  dayOffType?: DayOffType;
+  timeIn?: string;
+  timeOut?: string;
+  note?: string;
+  status: 'pending' | 'approved' | 'rejected' | 'withdrawn';
+  proposedBy?: string;
+  proposedAt: Date;
+  decidedBy?: string;
+  decidedAt?: Date;
+  decisionNote?: string;
+  // Populated fields
+  staff?: StaffProfile;
+  outlet?: Outlet;
+}
+
+// What a published roster day looked like before and after somebody changed it.
+export interface ScheduleDayState {
+  isDayOff: boolean;
+  dayOffType?: DayOffType | null;
+  timeIn?: string | null;
+  timeOut?: string | null;
+  outletId?: string | null;
+}
+
+export interface ScheduleChange {
+  id: string;
+  organizationId: string;
+  outletId?: string;
+  staffId?: string;
+  scheduleDate: Date;
+  was?: ScheduleDayState; // Absent when the day had no entry before
+  became: ScheduleDayState;
+  reason?: string;
+  changedBy?: string;
+  changedRole: PrincipalRole;
+  changedAt: Date;
+  // Populated fields
+  staff?: StaffProfile;
+  outlet?: Outlet;
+}
+
 export interface TaskCompletionProof {
   id: string;
   assignmentId: string;

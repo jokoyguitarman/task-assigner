@@ -50,6 +50,7 @@ import RescheduleRequests from './RescheduleRequests';
 import BranchExceptions from './BranchExceptions';
 import CoverageGaps from './CoverageGaps';
 import RaisedByBranches from './RaisedByBranches';
+import RosterRequests from './RosterRequests';
 import WatchToggle from './WatchToggle';
 import AlertToggle from '../common/AlertToggle';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
@@ -245,6 +246,8 @@ const AdminDashboard: React.FC = () => {
       />
 
       <RaisedByBranches onPromoted={loadData} />
+
+      <RosterRequests refreshKey={assignments.length} />
 
       <BranchExceptions
         assignments={assignments}

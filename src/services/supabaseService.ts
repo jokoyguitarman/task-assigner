@@ -5,7 +5,8 @@ import {
   User, Task, TaskAssignment, Organization,
   StaffPosition, Outlet, StaffProfile, MonthlySchedule, 
   DailySchedule, TaskCompletionProof, Invitation, PublicInvitation, InvitationFormData,
-  Reassignment, ShiftDefinition, Area, OutletShift, CoverageGap, RaisedItem
+  Reassignment, ShiftDefinition, Area, OutletShift, CoverageGap, RaisedItem,
+  ScheduleProposal, ScheduleChange, ScheduleDayState, DayOffType
 } from '../types';
 
 // Helper function to check if Supabase is configured
@@ -186,6 +187,55 @@ const transformDailySchedule = (row: any): DailySchedule => ({
   dayOffType: row.day_off_type,
   notes: row.notes,
   createdAt: new Date(row.created_at),
+  outlet: row.outlet ? transformOutlet(row.outlet) : undefined,
+});
+
+const transformScheduleProposal = (row: any): ScheduleProposal => ({
+  id: row.id,
+  organizationId: row.organization_id,
+  outletId: row.outlet_id,
+  staffId: row.staff_id,
+  scheduleDate: parseDateOnly(row.schedule_date),
+  isDayOff: row.is_day_off,
+  dayOffType: row.day_off_type || undefined,
+  timeIn: row.time_in ? hhmm(row.time_in) : undefined,
+  timeOut: row.time_out ? hhmm(row.time_out) : undefined,
+  note: row.note || undefined,
+  status: row.status,
+  proposedBy: row.proposed_by || undefined,
+  proposedAt: new Date(row.proposed_at),
+  decidedBy: row.decided_by || undefined,
+  decidedAt: row.decided_at ? new Date(row.decided_at) : undefined,
+  decisionNote: row.decision_note || undefined,
+  staff: row.staff ? transformStaffProfile(row.staff) : undefined,
+  outlet: row.outlet ? transformOutlet(row.outlet) : undefined,
+});
+
+const transformScheduleDayState = (value: any): ScheduleDayState | undefined =>
+  value
+    ? {
+        isDayOff: value.is_day_off,
+        dayOffType: value.day_off_type ?? null,
+        timeIn: value.time_in ? hhmm(value.time_in) : null,
+        timeOut: value.time_out ? hhmm(value.time_out) : null,
+        outletId: value.outlet_id ?? null,
+      }
+    : undefined;
+
+const transformScheduleChange = (row: any): ScheduleChange => ({
+  id: row.id,
+  organizationId: row.organization_id,
+  outletId: row.outlet_id || undefined,
+  staffId: row.staff_id || undefined,
+  scheduleDate: parseDateOnly(row.schedule_date),
+  was: transformScheduleDayState(row.was),
+  // Never null in the database, so the fallback only guards a malformed row.
+  became: transformScheduleDayState(row.became) ?? { isDayOff: false },
+  reason: row.reason || undefined,
+  changedBy: row.changed_by || undefined,
+  changedRole: row.changed_role,
+  changedAt: new Date(row.changed_at),
+  staff: row.staff ? transformStaffProfile(row.staff) : undefined,
   outlet: row.outlet ? transformOutlet(row.outlet) : undefined,
 });
 
@@ -1823,6 +1873,96 @@ export const dailySchedulesAPI = {
       .eq('id', id);
 
     if (error) throw error;
+  },
+};
+
+// The branch keeping its own roster.
+//
+// Every write goes through a database function rather than the tables: a branch has
+// no INSERT or UPDATE on daily_schedules and none of these calls give it any. The
+// function decides whether a date is near enough to publish or has to be proposed,
+// so the horizon cannot be moved by editing a request.
+export const branchRosterAPI = {
+  async setDay(input: {
+    staffId: string;
+    date: Date;
+    isDayOff: boolean;
+    timeIn?: string;
+    timeOut?: string;
+    dayOffType?: DayOffType;
+    reason?: string;
+  }): Promise<{ outcome: 'published' | 'proposed'; id: string }> {
+    if (!isSupabaseConfigured()) throw new Error('Supabase not configured');
+
+    const { data, error } = await supabase.rpc('set_branch_schedule', {
+      p_staff_id: input.staffId,
+      // A calendar day in the restaurant's zone. Handing over a Date serialises to
+      // UTC and lands on the previous day for anyone east of Greenwich.
+      p_date: toDateOnly(input.date),
+      p_is_day_off: input.isDayOff,
+      p_time_in: input.isDayOff ? null : input.timeIn ?? null,
+      p_time_out: input.isDayOff ? null : input.timeOut ?? null,
+      p_day_off_type: input.isDayOff ? input.dayOffType ?? null : null,
+      p_reason: input.reason ?? null,
+    });
+
+    if (error) throw new Error(error.message);
+
+    return data as { outcome: 'published' | 'proposed'; id: string };
+  },
+
+  // Requests still waiting on the owner. RLS narrows this to the caller's own
+  // branch when a branch asks, and to the organization when the owner does.
+  async getPending(): Promise<ScheduleProposal[]> {
+    if (!isSupabaseConfigured()) return [];
+
+    const { data, error } = await supabase
+      .from('schedule_proposals')
+      .select(`
+        *,
+        staff:staff_profiles(*, position:staff_positions(*)),
+        outlet:outlets(*)
+      `)
+      .eq('status', 'pending')
+      .order('schedule_date', { ascending: true });
+
+    if (error) throw error;
+
+    return data.map(transformScheduleProposal);
+  },
+
+  async decide(proposalId: string, approve: boolean, note?: string): Promise<'approved' | 'rejected'> {
+    if (!isSupabaseConfigured()) throw new Error('Supabase not configured');
+
+    const { data, error } = await supabase.rpc('decide_schedule_proposal', {
+      p_proposal_id: proposalId,
+      p_approve: approve,
+      p_note: note ?? null,
+    });
+
+    if (error) throw new Error(error.message);
+
+    return (data as { outcome: 'approved' | 'rejected' }).outcome;
+  },
+
+  // What has actually been changed, newest first. Read-only for everybody: the
+  // table grants no INSERT, UPDATE or DELETE to authenticated at all.
+  async getChanges(limit = 50): Promise<ScheduleChange[]> {
+    if (!isSupabaseConfigured()) return [];
+
+    const { data, error } = await supabase
+      .from('schedule_changes')
+      .select(`
+        *,
+        staff:staff_profiles(*, position:staff_positions(*)),
+        outlet:outlets(*)
+      `)
+      .order('changed_at', { ascending: false })
+      .limit(limit);
+
+    if (error) throw error;
+
+    return data.map(transformScheduleChange);
   },
 };
 

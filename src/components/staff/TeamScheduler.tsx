@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
+  Alert,
   Box,
   Card,
   CardContent,
@@ -9,6 +10,7 @@ import {
   Fade,
   Slide,
   Paper,
+  Snackbar,
   Table,
   TableBody,
   TableCell,
@@ -32,14 +34,19 @@ import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { 
   monthlySchedulesAPI, 
   staffProfilesAPI, 
-  outletsAPI 
+  outletsAPI,
+  branchRosterAPI
 } from '../../services/supabaseService';
 import { useAuth } from '../../contexts/AuthContext';
+import { toDateOnly, addDays } from '../../lib/dates';
 import { 
   MonthlySchedule, 
   StaffProfile, 
-  Outlet
+  Outlet,
+  ScheduleProposal,
+  BRANCH_ROSTER_HORIZON_DAYS
 } from '../../types';
+import EditRosterDayDialog from './EditRosterDayDialog';
 
 const TeamScheduler: React.FC = () => {
   const { user } = useAuth();
@@ -47,6 +54,9 @@ const TeamScheduler: React.FC = () => {
   const [staffProfiles, setStaffProfiles] = useState<StaffProfile[]>([]);
   const [outlets, setOutlets] = useState<Outlet[]>([]);
   const [monthlySchedules, setMonthlySchedules] = useState<MonthlySchedule[]>([]);
+  const [proposals, setProposals] = useState<ScheduleProposal[]>([]);
+  const [editing, setEditing] = useState<{ staff: StaffProfile; date: Date } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'weekly' | 'monthly'>(() => {
     try {
@@ -70,40 +80,51 @@ const TeamScheduler: React.FC = () => {
   const currentWeekStart = new Date(currentDate);
   currentWeekStart.setDate(currentDate.getDate() - currentDate.getDay());
 
-  useEffect(() => {
-    const loadData = async () => {
-      if (!user) return;
-      
-      try {
-        const [staffData, schedulesData, outletsData] = await Promise.all([
-          staffProfilesAPI.getAll(),
-          monthlySchedulesAPI.getAll(),
-          outletsAPI.getAll(),
-        ]);
-        
-        setStaffProfiles(staffData);
-        setMonthlySchedules(schedulesData);
-        setOutlets(outletsData);
-        
-        console.log('🔍 TeamScheduler - Loaded data:', {
-          staffProfiles: staffData.length,
-          monthlySchedules: schedulesData.length,
-          outlets: outletsData.length
-        });
-      } catch (error) {
-        console.error('Error loading team scheduler data:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const loadData = useCallback(async () => {
+    if (!user) return;
 
-    if (user) {
-      loadData();
+    try {
+      const [staffData, schedulesData, outletsData, proposalData] = await Promise.all([
+        staffProfilesAPI.getAll(),
+        monthlySchedulesAPI.getAll(),
+        outletsAPI.getAll(),
+        branchRosterAPI.getPending(),
+      ]);
+
+      setStaffProfiles(staffData);
+      setMonthlySchedules(schedulesData);
+      setOutlets(outletsData);
+      setProposals(proposalData);
+    } catch (error) {
+      console.error('Error loading team scheduler data:', error);
+    } finally {
+      setLoading(false);
     }
   }, [user]);
 
+  useEffect(() => {
+    if (user) {
+      loadData();
+    }
+  }, [user, loadData]);
+
   // For staff scheduler, show all staff profiles
   const filteredStaff = staffProfiles;
+
+  // Only a branch keeps a roster here; the owner has the full builder.
+  const canEdit = user?.role === 'outlet';
+
+  const today = toDateOnly(new Date());
+  const horizon = toDateOnly(addDays(new Date(), BRANCH_ROSTER_HORIZON_DAYS));
+
+  // Three states a day can be in for a branch: already worked and untouchable,
+  // near enough to publish, or far enough that the owner has to. The database
+  // decides this too — repeating it here only keeps the UI honest about it.
+  const dayStatusFor = (date: Date): 'past' | 'publishes' | 'proposes' => {
+    const day = toDateOnly(date);
+    if (day < today) return 'past';
+    return day <= horizon ? 'publishes' : 'proposes';
+  };
 
   const getStaffScheduleForDate = (staffId: string, date: Date) => {
     const targetMonth = date.getMonth() + 1;
@@ -124,6 +145,18 @@ const TeamScheduler: React.FC = () => {
     );
     
     return dailySchedule;
+  };
+
+  const getProposalForDate = (staffId: string, date: Date) =>
+    proposals.find(p => p.staffId === staffId && toDateOnly(p.scheduleDate) === toDateOnly(date));
+
+  const handleSaved = (outcome: 'published' | 'proposed') => {
+    setNotice(
+      outcome === 'published'
+        ? 'Roster updated.'
+        : 'Sent to the owner. It appears on the calendar once they publish it.'
+    );
+    loadData();
   };
 
   const getWeekDays = (startDate: Date) => {
@@ -267,7 +300,9 @@ const TeamScheduler: React.FC = () => {
                     📅 {viewMode === 'weekly' ? 'Weekly' : 'Monthly'} Schedule
                   </Typography>
                   <Typography variant="body1" sx={{ opacity: 0.9 }}>
-                    View your team's schedule for the {viewMode === 'weekly' ? 'week' : 'month'}
+                    {canEdit
+                      ? `Tap a day to set it. Anything past ${BRANCH_ROSTER_HORIZON_DAYS} days ahead goes to the owner to publish.`
+                      : `View your team's schedule for the ${viewMode === 'weekly' ? 'week' : 'month'}`}
                   </Typography>
                 </Box>
                 <Box display="flex" alignItems="center" gap={2}>
@@ -426,17 +461,28 @@ const TeamScheduler: React.FC = () => {
                             </TableCell>
                               {getWeekDays(currentWeekStart).map((date, dayIndex) => {
                               const schedule = getStaffScheduleForDate(staff.id, date);
-                              
+                              const proposal = getProposalForDate(staff.id, date);
+                              const status = dayStatusFor(date);
+                              const editable = canEdit && status !== 'past';
+
                               return (
                                   <TableCell key={dayIndex} align="center">
                                     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
                                   <Tooltip 
-                                    title={schedule ? `Scheduled` : `No schedule`}
+                                    title={
+                                      !editable
+                                        ? (schedule ? 'Scheduled' : 'No schedule')
+                                        : status === 'proposes'
+                                          ? 'Too far ahead to publish — this asks the owner'
+                                          : schedule ? 'Change this day' : 'Set this day'
+                                    }
                                     placement="top"
                                   >
+                                    <span>
                                     <IconButton
                                       size="small"
-                                      disabled
+                                      disabled={!editable}
+                                      onClick={() => setEditing({ staff, date })}
                                       sx={{
                                             width: 50,
                                             height: 50,
@@ -451,11 +497,29 @@ const TeamScheduler: React.FC = () => {
                                               : schedule?.outletId
                                                 ? 'white'
                                             : 'text.secondary',
+                                        // A day awaiting the owner is outlined rather than filled, so
+                                        // it never reads as a shift somebody can be counted on for.
+                                        border: proposal ? '2px dashed' : undefined,
+                                        borderColor: proposal ? 'warning.main' : undefined,
                                       }}
                                     >
                                       <ScheduleIcon fontSize="small" />
                                     </IconButton>
+                                    </span>
                                   </Tooltip>
+                                  {proposal && (
+                                    <Chip
+                                      label="Pending"
+                                      size="small"
+                                      sx={{
+                                        backgroundColor: 'warning.main',
+                                        color: 'white',
+                                        fontSize: '0.6rem',
+                                        height: 18,
+                                        fontWeight: 'bold',
+                                      }}
+                                    />
+                                  )}
                                   {schedule && (
                                         <Typography variant="caption" sx={{ fontSize: '0.7rem', textAlign: 'center' }}>
                                       {schedule.isDayOff 
@@ -541,18 +605,42 @@ const TeamScheduler: React.FC = () => {
                                 </TableCell>
                                 {week.map((date, dayIndex) => {
                                   const schedule = getStaffScheduleForDate(staff.id, date);
+                                  const proposal = getProposalForDate(staff.id, date);
                                   const isCurrentMonth = date.getMonth() === currentDate.getMonth();
-                                  
+                                  const editable = canEdit && dayStatusFor(date) !== 'past';
+
                                   return (
-                                    <TableCell key={dayIndex} align="center" sx={{ 
-                                      opacity: isCurrentMonth ? 1 : 0.3,
-                                      minWidth: 80,
-                                      height: 60
-                                    }}>
+                                    <TableCell
+                                      key={dayIndex}
+                                      align="center"
+                                      onClick={editable ? () => setEditing({ staff, date }) : undefined}
+                                      sx={{
+                                        opacity: isCurrentMonth ? 1 : 0.3,
+                                        minWidth: 80,
+                                        height: 60,
+                                        cursor: editable ? 'pointer' : 'default',
+                                        border: proposal ? '2px dashed' : undefined,
+                                        borderColor: proposal ? 'warning.main' : undefined,
+                                        '&:hover': editable ? { backgroundColor: 'action.hover' } : undefined,
+                                      }}
+                                    >
                                       <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
                                         <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
                                           {date.getDate()}
                                         </Typography>
+                                        {proposal && (
+                                          <Chip
+                                            label="Pending"
+                                            size="small"
+                                            sx={{
+                                              backgroundColor: 'warning.main',
+                                              color: 'white',
+                                              fontSize: '0.55rem',
+                                              height: 16,
+                                              fontWeight: 'bold',
+                                            }}
+                                          />
+                                        )}
                                         {schedule && (
                                           <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
                                             {schedule.isDayOff ? (
@@ -618,6 +706,26 @@ const TeamScheduler: React.FC = () => {
             </CardContent>
           </Card>
         </Slide>
+
+        <EditRosterDayDialog
+          open={Boolean(editing)}
+          staff={editing?.staff ?? null}
+          date={editing?.date ?? null}
+          existing={editing ? getStaffScheduleForDate(editing.staff.id, editing.date) : null}
+          pending={editing ? getProposalForDate(editing.staff.id, editing.date) : null}
+          withinHorizon={editing ? dayStatusFor(editing.date) === 'publishes' : true}
+          onClose={() => setEditing(null)}
+          onSaved={handleSaved}
+        />
+
+        <Snackbar
+          open={Boolean(notice)}
+          autoHideDuration={5000}
+          onClose={() => setNotice(null)}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        >
+          <Alert severity="success" onClose={() => setNotice(null)}>{notice}</Alert>
+        </Snackbar>
       </Box>
     </LocalizationProvider>
   );

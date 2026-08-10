@@ -104,7 +104,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     // Show Schedules and Performance menus for branch users
     ...(user?.role === 'outlet' ? [
       {
-        text: 'Team Schedules',
+        text: 'Roster',
         icon: <Schedule />,
         path: '/schedules',
       },
