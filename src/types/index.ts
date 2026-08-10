@@ -74,9 +74,16 @@ export interface Task {
   createdAt: Date;
   updatedAt: Date;
   createdBy: string; // Admin user ID
+  // Set when a branch raised this itself rather than the owner setting it as a
+  // standard. Such a task is never recurring and never reaches another branch.
+  raisedByOutletId?: string;
+  raisedByStaffId?: string;
+  photoPath?: string;
   // Populated fields
   shift?: ShiftDefinition;
   area?: Area;
+  raisedByOutletName?: string;
+  raisedByStaffName?: string;
 }
 
 export interface TaskAssignment {

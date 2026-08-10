@@ -50,10 +50,16 @@ const BranchExceptions: React.FC<Props> = ({
   const taskTitle = (id: string) => tasks.find(t => t.id === id)?.title ?? 'Unknown task';
   const staffName = (id?: string) => (id ? staffProfiles.find(s => s.id === id)?.name : undefined);
 
+  // Only work the owner asked for. A branch that reports five problems and fixes
+  // four should not score worse than one that notices nothing, so what a branch
+  // raised itself is reported separately rather than counted here.
+  const ownerAssigned = (assignment: TaskAssignment) =>
+    !tasks.find(t => t.id === assignment.taskId)?.raisedByOutletId;
+
   const states: BranchState[] = outlets
     .filter(outlet => outlet.isActive)
     .map(outlet => {
-      const mine = assignments.filter(a => a.outletId === outlet.id);
+      const mine = assignments.filter(a => a.outletId === outlet.id && ownerAssigned(a));
       const done = mine.filter(a => a.status === 'completed');
 
       return {

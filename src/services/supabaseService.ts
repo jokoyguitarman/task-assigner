@@ -52,6 +52,9 @@ const transformTask = (row: any): Task => ({
   areaId: row.area_id,
   dueTimeOverride: row.due_time_override ? hhmm(row.due_time_override) : undefined,
   outletIds: row.task_outlets ? row.task_outlets.map((t: any) => t.outlet_id) : undefined,
+  raisedByOutletId: row.raised_by_outlet_id || undefined,
+  raisedByStaffId: row.raised_by_staff_id || undefined,
+  photoPath: row.photo_path || undefined,
   organizationId: row.organization_id,
   createdBy: row.created_by,
   createdAt: new Date(row.created_at),
@@ -1052,6 +1055,98 @@ export const assignmentsAPI = {
     if (error) throw error;
 
     return transformTaskAssignment(data);
+  },
+};
+
+// A branch noticing something that needs doing.
+//
+// One server-side call, because the deadline must not be client-supplied: given the
+// chance, a branch could give itself until next week. The database derives it from
+// the branch's own shift and refuses a shift or area the branch does not have.
+export const raisedWorkAPI = {
+  async raise(input: {
+    title: string;
+    areaId: string;
+    shiftId: string;
+    staffId?: string;
+    note?: string;
+    photo?: File;
+  }): Promise<string> {
+    if (!isSupabaseConfigured()) throw new Error('Supabase not configured');
+
+    let photoPath: string | undefined;
+
+    // Uploaded first so the path can be handed to the function: the storage policy
+    // matches the leading folder against the caller's organization, and a photo of
+    // the problem is worth more than one of the aftermath.
+    if (input.photo) {
+      const organizationId = await requireOrganizationId();
+      const extension = input.photo.name.includes('.') ? input.photo.name.split('.').pop() : 'jpg';
+      photoPath = `${organizationId}/raised/${crypto.randomUUID()}.${extension}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from(PROOF_BUCKET)
+        .upload(photoPath, input.photo, { contentType: input.photo.type, upsert: false });
+
+      if (uploadError) throw new Error(`Could not attach the photo: ${uploadError.message}`);
+    }
+
+    const { data, error } = await supabase.rpc('raise_branch_task', {
+      p_title: input.title,
+      p_area_id: input.areaId,
+      p_shift_id: input.shiftId,
+      p_staff_id: input.staffId ?? null,
+      p_note: input.note ?? null,
+      p_photo_path: photoPath ?? null,
+    });
+
+    if (error) throw new Error(error.message);
+
+    return data as string;
+  },
+
+  // What the branches have raised, for the owner to promote or dismiss.
+  async getRaised(): Promise<Task[]> {
+    if (!isSupabaseConfigured()) return [];
+
+    const { data, error } = await supabase
+      .from('tasks')
+      .select(`${TASK_SELECT}, raised_outlet:raised_by_outlet_id (id, name), raised_staff:raised_by_staff_id (id, name)`)
+      .not('raised_by_outlet_id', 'is', null)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    return data.map((row: any) => ({
+      ...transformTask(row),
+      raisedByOutletName: row.raised_outlet?.name,
+      raisedByStaffName: row.raised_staff?.name,
+    }));
+  },
+
+  // Turning an observation into a standard is the owner's decision, and the only one
+  // worth keeping: from here it fans out to every branch that qualifies.
+  async promoteToRecurring(taskId: string): Promise<void> {
+    if (!isSupabaseConfigured()) throw new Error('Supabase not configured');
+
+    const { error } = await supabase
+      .from('tasks')
+      .update({
+        is_recurring: true,
+        recurring_pattern: 'daily',
+        raised_by_outlet_id: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', taskId);
+
+    if (error) throw error;
+  },
+
+  async dismiss(taskId: string): Promise<void> {
+    if (!isSupabaseConfigured()) throw new Error('Supabase not configured');
+
+    const { error } = await supabase.from('tasks').delete().eq('id', taskId);
+    if (error) throw error;
   },
 };
 

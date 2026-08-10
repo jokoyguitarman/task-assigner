@@ -39,6 +39,7 @@ import {
   LocationOn,
   PersonAdd,
   PriorityHigh,
+  Add,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { TaskAssignment, Task, StaffProfile, User, Outlet } from '../../types';
@@ -49,6 +50,7 @@ import { realtimeService } from '../../services/realtimeService';
 import ToastNotification from '../common/ToastNotification';
 import RescheduleRequestDialog from './RescheduleRequestDialog';
 import AreaChecklists from './AreaChecklists';
+import RaiseTaskDialog from './RaiseTaskDialog';
 
 const StaffDashboard: React.FC = () => {
   const { user, currentOutlet, isOutletUser } = useAuth();
@@ -75,6 +77,7 @@ const StaffDashboard: React.FC = () => {
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [currentStreak, setCurrentStreak] = useState<number>(0);
   const [longestStreak, setLongestStreak] = useState<number>(0);
+  const [raiseOpen, setRaiseOpen] = useState(false);
   const [rescheduleDialogOpen, setRescheduleDialogOpen] = useState(false);
   const [assignmentToReschedule, setAssignmentToReschedule] = useState<TaskAssignment | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -983,6 +986,20 @@ const StaffDashboard: React.FC = () => {
                   onClaim={handleTakeTask}
                   onComplete={(id) => { window.location.href = `/tasks/${id}/complete`; }}
                 />
+
+                {isOutletUser && (
+                  <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid #f1f5f9' }}>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      startIcon={<Add />}
+                      onClick={() => setRaiseOpen(true)}
+                      sx={{ borderRadius: 2, borderStyle: 'dashed', py: 1.25 }}
+                    >
+                      Something needs doing
+                    </Button>
+                  </Box>
+                )}
               </CardContent>
             </Card>
           </Fade>
@@ -1527,6 +1544,12 @@ const StaffDashboard: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <RaiseTaskDialog
+        open={raiseOpen}
+        onClose={() => setRaiseOpen(false)}
+        onRaised={loadData}
+      />
 
       {/* Reschedule Request Dialog */}
       <RescheduleRequestDialog

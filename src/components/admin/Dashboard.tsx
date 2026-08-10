@@ -49,6 +49,7 @@ import AssignmentForm from './AssignmentForm';
 import RescheduleRequests from './RescheduleRequests';
 import BranchExceptions from './BranchExceptions';
 import CoverageGaps from './CoverageGaps';
+import RaisedByBranches from './RaisedByBranches';
 import AlertToggle from '../common/AlertToggle';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { realtimeService } from '../../services/realtimeService';
@@ -241,6 +242,8 @@ const AdminDashboard: React.FC = () => {
         refreshKey={assignments.length}
         onReassign={(assignmentId) => setReassigningId(assignmentId)}
       />
+
+      <RaisedByBranches onPromoted={loadData} />
 
       <BranchExceptions
         assignments={assignments}
