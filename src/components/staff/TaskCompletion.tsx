@@ -12,6 +12,8 @@ import {
   Chip,
   Grid,
   IconButton,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
 import {
   ArrowBack,
@@ -42,6 +44,9 @@ const TaskCompletion: React.FC = () => {
   // Form state
   const [completionNotes, setCompletionNotes] = useState('');
   const [proofFiles, setProofFiles] = useState<File[]>([]);
+  const [conditionRating, setConditionRating] = useState<'fine' | 'attention' | 'bad' | ''>('');
+  const [answerText, setAnswerText] = useState('');
+  const [answerNumber, setAnswerNumber] = useState('');
 
   const loadAssignmentData = useCallback(async () => {
     if (!assignmentId) return;
@@ -113,8 +118,51 @@ const TaskCompletion: React.FC = () => {
     setProofFiles(prev => prev.filter((_, i) => i !== index));
   };
 
+  // The database refuses anything that does not satisfy the task, so this exists
+  // only to say so before the round trip rather than after it.
+  const missingRequirement = (): string | null => {
+    if (!task) return null;
+
+    if (task.requiresPhoto && proofFiles.length === 0) {
+      return 'This one needs a photo before you can mark it done.';
+    }
+
+    if (task.answerType === 'condition') {
+      if (!conditionRating) return 'Say what condition you found it in.';
+      if (conditionRating !== 'fine' && !completionNotes.trim()) {
+        return 'Say briefly what was wrong.';
+      }
+    }
+
+    if (task.answerType === 'text' && !answerText.trim()) {
+      return 'This one needs an answer before you can mark it done.';
+    }
+
+    if (task.answerType === 'number') {
+      if (answerNumber.trim() === '') return 'This one needs a reading.';
+
+      const value = Number(answerNumber);
+      if (Number.isNaN(value)) return 'That reading is not a number.';
+
+      const low = task.answerMin !== undefined && value < task.answerMin;
+      const high = task.answerMax !== undefined && value > task.answerMax;
+
+      if ((low || high) && !completionNotes.trim()) {
+        return 'That reading is outside the expected range. Say what you found.';
+      }
+    }
+
+    return null;
+  };
+
   const handleSubmit = async () => {
     if (!assignment || !task) return;
+
+    const missing = missingRequirement();
+    if (missing) {
+      setError(missing);
+      return;
+    }
 
     setSubmitting(true);
     setError(null);
@@ -135,6 +183,9 @@ const TaskCompletion: React.FC = () => {
         completionProof: uploaded[0]?.filePath,
         completionNotes: completionNotes.trim() || undefined,
         completedByStaffId: assignment.staffId,
+        conditionRating: task.answerType === 'condition' && conditionRating ? conditionRating : undefined,
+        answerText: task.answerType === 'text' ? answerText.trim() : undefined,
+        answerNumber: task.answerType === 'number' ? Number(answerNumber) : undefined,
       });
 
       setSuccess(true);
@@ -294,12 +345,66 @@ const TaskCompletion: React.FC = () => {
                 Mark as Complete
               </Typography>
 
+              {/* Whatever this particular task asks for. Most ask for nothing and
+                  this whole block is absent. */}
+              {task?.answerType === 'condition' && (
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    {task.answerPrompt || 'What condition did you find it in?'}
+                  </Typography>
+                  <ToggleButtonGroup
+                    exclusive
+                    fullWidth
+                    value={conditionRating}
+                    onChange={(_, value) => value && setConditionRating(value)}
+                  >
+                    <ToggleButton value="fine" color="success">Fine</ToggleButton>
+                    <ToggleButton value="attention" color="warning">Needs attention</ToggleButton>
+                    <ToggleButton value="bad" color="error">Bad</ToggleButton>
+                  </ToggleButtonGroup>
+                </Box>
+              )}
+
+              {task?.answerType === 'text' && (
+                <Box sx={{ mb: 3 }}>
+                  <TextField
+                    fullWidth
+                    multiline
+                    rows={2}
+                    label={task.answerPrompt || 'What did you find?'}
+                    value={answerText}
+                    onChange={(e) => setAnswerText(e.target.value)}
+                  />
+                </Box>
+              )}
+
+              {task?.answerType === 'number' && (
+                <Box sx={{ mb: 3 }}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    label={task.answerPrompt || 'Reading'}
+                    value={answerNumber}
+                    onChange={(e) => setAnswerNumber(e.target.value)}
+                    helperText={
+                      task.answerMin !== undefined || task.answerMax !== undefined
+                        ? `Expected between ${task.answerMin ?? '—'} and ${task.answerMax ?? '—'}`
+                        : undefined
+                    }
+                  />
+                </Box>
+              )}
+
               <Box sx={{ mb: 3 }}>
                 <TextField
                   fullWidth
                   multiline
                   rows={3}
-                  label="Completion Notes"
+                  label={
+                    task?.answerType === 'condition' && conditionRating && conditionRating !== 'fine'
+                      ? 'What was wrong? (required)'
+                      : 'Completion Notes'
+                  }
                   placeholder="Add any notes about the task completion..."
                   value={completionNotes}
                   onChange={(e) => setCompletionNotes(e.target.value)}

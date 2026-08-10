@@ -5,7 +5,7 @@ import {
   User, Task, TaskAssignment, Organization,
   StaffPosition, Outlet, StaffProfile, MonthlySchedule, 
   DailySchedule, TaskCompletionProof, Invitation, PublicInvitation, InvitationFormData,
-  Reassignment, ShiftDefinition, Area, OutletShift, CoverageGap, RaisedItem,
+  Reassignment, ShiftDefinition, Area, OutletShift, CoverageGap, RaisedItem, Reading,
   ScheduleProposal, ScheduleChange, ScheduleDayState, DayOffType
 } from '../types';
 
@@ -56,6 +56,11 @@ const transformTask = (row: any): Task => ({
   raisedByOutletId: row.raised_by_outlet_id || undefined,
   raisedByStaffId: row.raised_by_staff_id || undefined,
   photoPath: row.photo_path || undefined,
+  answerType: row.answer_type || 'none',
+  answerPrompt: row.answer_prompt || undefined,
+  answerMin: row.answer_min ?? undefined,
+  answerMax: row.answer_max ?? undefined,
+  requiresPhoto: row.requires_photo || false,
   organizationId: row.organization_id,
   createdBy: row.created_by,
   createdAt: new Date(row.created_at),
@@ -106,6 +111,9 @@ const transformTaskAssignment = (row: any): TaskAssignment => ({
   completionNotes: row.completion_notes || undefined,
   completedByStaffId: row.completed_by_staff_id || undefined,
   ownerWatching: row.owner_watching || false,
+  conditionRating: row.condition_rating || undefined,
+  answerText: row.answer_text || undefined,
+  answerNumber: row.answer_number ?? undefined,
   minutesDeducted: row.minutes_deducted,
   // Reschedule fields
   rescheduleRequestedAt: row.reschedule_requested_at ? new Date(row.reschedule_requested_at) : undefined,
@@ -821,6 +829,11 @@ export const tasksAPI = {
         shift_id: taskData.shiftId,
         area_id: taskData.areaId,
         due_time_override: taskData.dueTimeOverride || null,
+        answer_type: taskData.answerType || 'none',
+        answer_prompt: taskData.answerPrompt || null,
+        answer_min: taskData.answerMin ?? null,
+        answer_max: taskData.answerMax ?? null,
+        requires_photo: taskData.requiresPhoto || false,
         created_by: taskData.createdBy,
         organization_id: taskData.organizationId || (await requireOrganizationId()),
       })
@@ -855,6 +868,11 @@ export const tasksAPI = {
     if (taskData.shiftId !== undefined) updateData.shift_id = taskData.shiftId;
     if (taskData.areaId !== undefined) updateData.area_id = taskData.areaId;
     if (taskData.dueTimeOverride !== undefined) updateData.due_time_override = taskData.dueTimeOverride || null;
+    if (taskData.answerType !== undefined) updateData.answer_type = taskData.answerType;
+    if (taskData.answerPrompt !== undefined) updateData.answer_prompt = taskData.answerPrompt || null;
+    if (taskData.answerMin !== undefined) updateData.answer_min = taskData.answerMin ?? null;
+    if (taskData.answerMax !== undefined) updateData.answer_max = taskData.answerMax ?? null;
+    if (taskData.requiresPhoto !== undefined) updateData.requires_photo = taskData.requiresPhoto;
     if (taskData.createdBy !== undefined) updateData.created_by = taskData.createdBy;
 
     const { data, error } = await supabase
@@ -1024,6 +1042,9 @@ export const assignmentsAPI = {
     // reassignment.
     if (assignmentData.reassignmentReason) updateData.reassignment_reason = assignmentData.reassignmentReason;
     if (assignmentData.ownerWatching !== undefined) updateData.owner_watching = assignmentData.ownerWatching;
+    if (assignmentData.conditionRating !== undefined) updateData.condition_rating = assignmentData.conditionRating || null;
+    if (assignmentData.answerText !== undefined) updateData.answer_text = assignmentData.answerText || null;
+    if (assignmentData.answerNumber !== undefined) updateData.answer_number = assignmentData.answerNumber ?? null;
     if (assignmentData.minutesDeducted) updateData.minutes_deducted = assignmentData.minutesDeducted;
 
     const { data, error } = await supabase
@@ -1123,6 +1144,7 @@ export const raisedWorkAPI = {
     staffId?: string;
     note?: string;
     photo?: File;
+    requiresPhoto?: boolean;
   }): Promise<string> {
     if (!isSupabaseConfigured()) throw new Error('Supabase not configured');
 
@@ -1150,6 +1172,7 @@ export const raisedWorkAPI = {
       p_staff_id: input.staffId ?? null,
       p_note: input.note ?? null,
       p_photo_path: photoPath ?? null,
+      p_requires_photo: input.requiresPhoto ?? false,
     });
 
     if (error) throw new Error(error.message);
@@ -1213,6 +1236,31 @@ export const raisedWorkAPI = {
 
     const { error } = await supabase.from('tasks').delete().eq('id', taskId);
     if (error) throw error;
+  },
+};
+
+// What the repeated checks have been coming back as.
+export const readingsAPI = {
+  async getHistory(days = 30): Promise<Reading[]> {
+    if (!isSupabaseConfigured()) return [];
+
+    const { data, error } = await supabase.rpc('readings_history', { p_days: days });
+
+    if (error) throw error;
+
+    return (data ?? []).map((row: any) => ({
+      taskTitle: row.task_title,
+      outletName: row.outlet_name,
+      areaName: row.area_name,
+      answerType: row.answer_type,
+      readings: row.readings,
+      fine: row.fine,
+      attention: row.attention,
+      bad: row.bad,
+      outOfRange: row.out_of_range,
+      lastSeen: row.last_seen ? parseDateOnly(row.last_seen) : undefined,
+      lastValue: row.last_value ?? undefined,
+    }));
   },
 };
 

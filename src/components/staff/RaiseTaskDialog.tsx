@@ -7,7 +7,9 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControlLabel,
   MenuItem,
+  Switch,
   TextField,
   Typography,
 } from '@mui/material';
@@ -45,6 +47,9 @@ const RaiseTaskDialog: React.FC<Props> = ({ open, onClose, onRaised }) => {
   const [staffId, setStaffId] = useState('');
   const [note, setNote] = useState('');
   const [photo, setPhoto] = useState<File | null>(null);
+  const [requiresPhoto, setRequiresPhoto] = useState(false);
+  // Once the raiser has an opinion, stop guessing on their behalf.
+  const [touchedRequiresPhoto, setTouchedRequiresPhoto] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,6 +86,8 @@ const RaiseTaskDialog: React.FC<Props> = ({ open, onClose, onRaised }) => {
     setStaffId('');
     setNote('');
     setPhoto(null);
+    setRequiresPhoto(false);
+    setTouchedRequiresPhoto(false);
     setError(null);
   };
 
@@ -96,6 +103,7 @@ const RaiseTaskDialog: React.FC<Props> = ({ open, onClose, onRaised }) => {
         staffId: staffId || undefined,
         note: note || undefined,
         photo: photo || undefined,
+        requiresPhoto,
       });
 
       reset();
@@ -191,9 +199,31 @@ const RaiseTaskDialog: React.FC<Props> = ({ open, onClose, onRaised }) => {
             hidden
             type="file"
             accept="image/*,video/*"
-            onChange={(e) => setPhoto(e.target.files?.[0] ?? null)}
+            onChange={(e) => {
+              const file = e.target.files?.[0] ?? null;
+              setPhoto(file);
+              // Attaching a photo of the problem is the signal that this is a
+              // physical thing with a visible before and after, so the fix is
+              // probably worth seeing too. Still overridable.
+              if (file && !touchedRequiresPhoto) setRequiresPhoto(true);
+            }}
           />
         </Button>
+
+        <FormControlLabel
+          sx={{ display: 'block', mt: 1 }}
+          control={
+            <Switch
+              checked={requiresPhoto}
+              onChange={(e) => { setRequiresPhoto(e.target.checked); setTouchedRequiresPhoto(true); }}
+            />
+          }
+          label="A photo will be needed when this is done"
+        />
+        <Typography variant="caption" color="text.secondary">
+          Worth it for anything physical. Skip it for reminders like a change to the bin
+          collection day.
+        </Typography>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} color="inherit">Cancel</Button>

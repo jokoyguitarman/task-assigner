@@ -68,6 +68,13 @@ export interface Task {
   areaId: string;
   // When set, this exact time wins at every branch instead of the shift's end.
   dueTimeOverride?: string; // HH:MM
+  // What finishing this has to produce. The condition scale is fixed on purpose:
+  // owner-defined options per task would read better and aggregate into nothing.
+  answerType: 'none' | 'condition' | 'text' | 'number';
+  answerPrompt?: string;
+  answerMin?: number;
+  answerMax?: number;
+  requiresPhoto: boolean;
   // Empty means every branch that runs the shift and has the area.
   outletIds?: string[];
   organizationId: string;
@@ -111,6 +118,10 @@ export interface TaskAssignment {
   // finished, and told if it blows its deadline. Owner-only, enforced in the
   // database — a branch able to set it could force alerts on itself.
   ownerWatching?: boolean;
+  // What was found. Only whichever one the task asked for is ever set.
+  conditionRating?: 'fine' | 'attention' | 'bad';
+  answerText?: string;
+  answerNumber?: number;
   // Reschedule request fields
   rescheduleRequestedAt?: Date;
   rescheduleReason?: string;
@@ -132,6 +143,22 @@ export interface RaisedItem extends Task {
   assignmentId?: string;
   assignmentStatus?: TaskAssignment['status'];
   ownerWatching?: boolean;
+}
+
+// What a repeated check has been coming back as. Countable only because the
+// condition scale is fixed rather than defined per task.
+export interface Reading {
+  taskTitle: string;
+  outletName: string;
+  areaName: string;
+  answerType: string;
+  readings: number;
+  fine: number;
+  attention: number;
+  bad: number;
+  outOfRange: number;
+  lastSeen?: Date;
+  lastValue?: string;
 }
 
 // Work whose assignee will not be there to do it. Detected before the deadline
@@ -192,6 +219,11 @@ export interface TaskFormData {
   areaId: string;
   dueTimeOverride?: string;
   outletIds?: string[];
+  answerType: 'none' | 'condition' | 'text' | 'number';
+  answerPrompt?: string;
+  answerMin?: number;
+  answerMax?: number;
+  requiresPhoto: boolean;
 }
 
 export interface AssignmentFormData {

@@ -16,6 +16,7 @@ import {
   Grid,
   Checkbox,
   ListItemText,
+  Divider,
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -51,12 +52,16 @@ const TaskForm: React.FC<TaskFormProps> = ({ taskId, onSuccess, onCancel }) => {
       areaId: '',
       dueTimeOverride: '',
       outletIds: [],
+      answerType: 'none',
+      answerPrompt: '',
+      requiresPhoto: false,
     },
   });
 
   const isRecurring = watch('isRecurring');
   const selectedShiftId = watch('shiftId');
   const selectedOutletIds = watch('outletIds') || [];
+  const answerType = watch('answerType');
 
   useEffect(() => {
     const loadOptions = async () => {
@@ -96,6 +101,11 @@ const TaskForm: React.FC<TaskFormProps> = ({ taskId, onSuccess, onCancel }) => {
             areaId: task.areaId,
             dueTimeOverride: task.dueTimeOverride || '',
             outletIds: task.outletIds || [],
+            answerType: task.answerType || 'none',
+            answerPrompt: task.answerPrompt || '',
+            answerMin: task.answerMin,
+            answerMax: task.answerMax,
+            requiresPhoto: task.requiresPhoto || false,
           });
         } catch (error) {
           console.error('Error loading task:', error);
@@ -328,6 +338,116 @@ const TaskForm: React.FC<TaskFormProps> = ({ taskId, onSuccess, onCancel }) => {
                   )}
                 />
               </Grid>
+
+              {/* What finishing this has to produce. Everything defaults to a plain
+                  tick, so a task the owner does not care much about still takes
+                  seconds to create. */}
+              <Grid item xs={12}>
+                <Divider sx={{ my: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    WHAT FINISHING THIS NEEDS
+                  </Typography>
+                </Divider>
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <Controller
+                  name="answerType"
+                  control={control}
+                  render={({ field }) => (
+                    <FormControl fullWidth>
+                      <InputLabel>Ask for</InputLabel>
+                      <Select {...field} label="Ask for">
+                        <MenuItem value="none">Just a tick</MenuItem>
+                        <MenuItem value="condition">A condition: Fine, Needs attention, Bad</MenuItem>
+                        <MenuItem value="text">A written answer</MenuItem>
+                        <MenuItem value="number">A reading (a number)</MenuItem>
+                      </Select>
+                      <FormHelperText>
+                        {answerType === 'condition'
+                          ? 'Fixed three levels, so you can compare them over time'
+                          : answerType === 'text'
+                          ? 'For checks with no instrument, where a demanded number would only be invented'
+                          : answerType === 'number'
+                          ? 'Out-of-range readings are allowed, but have to be explained'
+                          : 'Done or not done, nothing to fill in'}
+                      </FormHelperText>
+                    </FormControl>
+                  )}
+                />
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <Controller
+                  name="requiresPhoto"
+                  control={control}
+                  render={({ field }) => (
+                    <FormControlLabel
+                      control={<Switch checked={!!field.value} onChange={field.onChange} />}
+                      label="A photo is required"
+                    />
+                  )}
+                />
+                <FormHelperText>
+                  Worth it where the photo is the point. Demand one everywhere and people
+                  photograph the floor to get past the form.
+                </FormHelperText>
+              </Grid>
+
+              {answerType !== 'none' && (
+                <Grid item xs={12}>
+                  <Controller
+                    name="answerPrompt"
+                    control={control}
+                    render={({ field }) => (
+                      <TextField
+                        {...field}
+                        fullWidth
+                        label="What should they be asked?"
+                        placeholder="e.g. How did the freezer feel? Any frost building up?"
+                        helperText="Shown on the branch phone in place of a blank box"
+                      />
+                    )}
+                  />
+                </Grid>
+              )}
+
+              {answerType === 'number' && (
+                <>
+                  <Grid item xs={6} sm={3}>
+                    <Controller
+                      name="answerMin"
+                      control={control}
+                      render={({ field }) => (
+                        <TextField
+                          {...field}
+                          value={field.value ?? ''}
+                          onChange={(e) => field.onChange(e.target.value === '' ? undefined : Number(e.target.value))}
+                          fullWidth
+                          type="number"
+                          label="Expected from"
+                        />
+                      )}
+                    />
+                  </Grid>
+                  <Grid item xs={6} sm={3}>
+                    <Controller
+                      name="answerMax"
+                      control={control}
+                      render={({ field }) => (
+                        <TextField
+                          {...field}
+                          value={field.value ?? ''}
+                          onChange={(e) => field.onChange(e.target.value === '' ? undefined : Number(e.target.value))}
+                          fullWidth
+                          type="number"
+                          label="to"
+                        />
+                      )}
+                    />
+                  </Grid>
+                </>
+              )}
 
               <Grid item xs={12}>
                 <Controller

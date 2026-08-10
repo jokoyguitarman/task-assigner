@@ -47,6 +47,7 @@ import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { exportService, TaskCompletionReport } from '../../services/exportService';
 import { assignmentsAPI, tasksAPI, staffProfilesAPI, outletsAPI } from '../../services/supabaseService';
 import { TaskAssignment, Task, StaffProfile, Outlet } from '../../types';
+import ReadingsHistory from './ReadingsHistory';
 
 const TaskCompletionReports: React.FC = () => {
   const [assignments, setAssignments] = useState<TaskAssignment[]>([]);
@@ -714,6 +715,10 @@ const TaskCompletionReports: React.FC = () => {
             </Button>
           </DialogActions>
         </Dialog>
+
+        {/* Completion tells you whether a job happened. This tells you what people
+            found when they did it, which is the other half of looking backwards. */}
+        <ReadingsHistory />
       </Box>
     </LocalizationProvider>
   );
