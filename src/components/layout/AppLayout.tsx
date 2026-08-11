@@ -22,6 +22,7 @@ import {
   Assignment,
   AutoAwesome,
   Checklist,
+  EventRepeat,
   People,
   Logout,
   Menu as MenuIcon,
@@ -118,6 +119,13 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         path: '/tasks',
       },
     ] : []),
+    // Sits next to the landing view for both roles, because "what is coming" is the
+    // natural second question after "what is due now".
+    {
+      text: 'Coming up',
+      icon: <EventRepeat />,
+      path: '/upcoming',
+    },
     // Show Schedules and Performance menus for branch users
     ...(user?.role === 'outlet' ? [
       {

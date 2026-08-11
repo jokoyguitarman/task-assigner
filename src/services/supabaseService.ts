@@ -6,7 +6,7 @@ import {
   StaffPosition, Outlet, StaffProfile, MonthlySchedule, 
   DailySchedule, TaskCompletionProof, Invitation, PublicInvitation, InvitationFormData,
   Reassignment, ShiftDefinition, Area, OutletShift, CoverageGap, RaisedItem, Reading,
-  ScheduleProposal, ScheduleChange, ScheduleDayState, DayOffType
+  ScheduleProposal, ScheduleChange, ScheduleDayState, DayOffType, UpcomingItem
 } from '../types';
 
 // Helper function to check if Supabase is configured
@@ -1318,6 +1318,35 @@ export const coverageAPI = {
       businessDay: parseDateOnly(row.business_day),
       dueTime: row.due_time ? hhmm(row.due_time) : undefined,
       reason: row.reason,
+    }));
+  },
+};
+
+// What is coming but has not arrived. Half of it does not exist as rows yet — see
+// the note on `isProjected` — which is why this is one RPC rather than a query the
+// client could assemble itself from tasks and assignments.
+export const upcomingAPI = {
+  async get(days: number = 14): Promise<UpcomingItem[]> {
+    if (!isSupabaseConfigured()) return [];
+
+    const { data, error } = await supabase.rpc('upcoming_work', { p_days: days });
+
+    if (error) throw error;
+
+    return (data ?? []).map((row: any) => ({
+      businessDay: parseDateOnly(row.business_day),
+      outletId: row.outlet_id,
+      outletName: row.outlet_name,
+      taskId: row.task_id,
+      taskTitle: row.task_title,
+      areaName: row.area_name || undefined,
+      shiftName: row.shift_name || undefined,
+      dueTime: row.due_time ? hhmm(row.due_time) : undefined,
+      isProjected: row.is_projected,
+      assignmentId: row.assignment_id || undefined,
+      staffName: row.staff_name || undefined,
+      status: row.status,
+      recurrence: row.recurrence || undefined,
     }));
   },
 };

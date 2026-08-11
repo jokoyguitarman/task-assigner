@@ -21,6 +21,7 @@ import StaffEnrollment from './components/admin/StaffEnrollment';
 import MonthlyScheduler from './components/admin/MonthlyScheduler';
 import TaskCompletionReports from './components/admin/TaskCompletionReports';
 import InvitationManagement from './components/admin/InvitationManagement';
+import UpcomingWork from './components/common/UpcomingWork';
 import BranchBoard from './components/staff/BranchBoard';
 import StaffDashboard from './components/staff/StaffDashboard';
 import TaskCompletion from './components/staff/TaskCompletion';
@@ -220,6 +221,7 @@ const AdminRoutes: React.FC = () => (
     <Route path="/business-setup" element={<BusinessSetup />} />
     <Route path="/scheduler" element={<MonthlyScheduler />} />
     <Route path="/assignments" element={<AssignmentList />} />
+    <Route path="/upcoming" element={<UpcomingWork />} />
     <Route path="/reports" element={<TaskCompletionReports />} />
     <Route path="/invitations" element={<InvitationManagement />} />
     <Route path="*" element={<Navigate to="/assistant" replace />} />
@@ -231,6 +233,7 @@ const AdminRoutes: React.FC = () => (
 const OutletRoutes: React.FC = () => (
   <Routes>
     <Route path="/board" element={<BranchBoard />} />
+    <Route path="/upcoming" element={<UpcomingWork />} />
     <Route path="/dashboard" element={<StaffDashboard />} />
     <Route path="/schedules" element={<TeamScheduler />} />
     <Route path="/performance" element={<PerformanceTracker />} />

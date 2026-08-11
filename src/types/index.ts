@@ -161,6 +161,30 @@ export interface Reading {
   lastValue?: string;
 }
 
+// A job that has not happened yet, from either of two quite different places.
+//
+// isProjected false — a real assignment row dated in the future. It exists, it can
+// be claimed, and it may already belong to somebody.
+//
+// isProjected true — nothing exists yet. This is what the hourly materialiser will
+// create when the day comes, worked out from a recurring task's rule. It is a
+// forecast, and retiring the task or taking the area off a branch changes it.
+export interface UpcomingItem {
+  businessDay: Date;
+  outletId: string;
+  outletName: string;
+  taskId: string;
+  taskTitle: string;
+  areaName?: string;
+  shiftName?: string;
+  dueTime?: string;
+  isProjected: boolean;
+  assignmentId?: string;
+  staffName?: string;
+  status: string;
+  recurrence?: string;
+}
+
 // Work whose assignee will not be there to do it. Detected before the deadline
 // passes, so there is still time to hand it to somebody else.
 export interface CoverageGap {
