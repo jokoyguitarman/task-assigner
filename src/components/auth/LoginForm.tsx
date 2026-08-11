@@ -46,7 +46,11 @@ const LoginForm: React.FC = () => {
     try {
       // Normal email login for all users
       await login(email, password);
-      navigate('/dashboard');
+      // Sent to the root rather than to a named screen, because the two roles start
+      // in different places and the role is not reliably readable here yet: login()
+      // has only just called setUser, and this runs before React has re-rendered.
+      // The root route reads the settled identity and forwards accordingly.
+      navigate('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     }

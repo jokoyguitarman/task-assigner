@@ -12,9 +12,16 @@ Built with React 18, TypeScript, Material-UI and Supabase.
 There are two kinds of account, and they are both real Supabase auth users:
 
 - **Owner (`admin`)** — sees every branch in the organization. Creates tasks,
-  assigns them, enrolls staff, invites branches, reads reports.
+  assigns them, enrolls staff, invites branches, reads reports. Opens onto the
+  assistant at `/assistant`; the full console is one tap away at `/dashboard`.
 - **Branch (`outlet`)** — one shared login per location, used on the store's
-  phone or tablet. Sees only that branch's assignments and roster.
+  phone or tablet. Sees only that branch's assignments and roster. Opens onto
+  today's work grouped by area at `/board`, with the editable operations
+  dashboard behind a button.
+
+Each role lands where it does most of its work, rather than both landing on a
+dashboard. A branch mid-shift wants the list for the station they are standing
+in; an owner wants to say what needs doing without learning a form.
 
 **Staff do not log in.** A staff member is a roster entry belonging to a branch:
 a name, an employee number, a position, a hire date, and a streak. Tasks are
@@ -101,7 +108,9 @@ src/
 ├── components/
 │   ├── admin/     Owner screens: dashboard, tasks, assignments, staff,
 │   │              outlets, invitations, schedulers, reports, leaderboard
-│   ├── staff/     Branch screens: dashboard, task completion, performance
+│   │   └── assistant/  The chat the owner lands on
+│   ├── staff/     Branch screens: today's board, operations dashboard,
+│   │              task completion, roster, performance
 │   ├── auth/      Login, owner signup, invitation redemption, /setup
 │   └── layout/    Shell, navigation, notifications, usage stats
 ├── contexts/      AuthContext — identity from JWT claims
@@ -110,6 +119,7 @@ src/
 └── types/         Shared TypeScript types
 supabase/
 ├── migrations/    Numbered SQL, applied in order
+├── functions/     Deno edge functions, deployed to Supabase
 ├── legacy-sql/    Archive of the pre-migration scripts, for reference only
 └── SCHEMA_NOTES.md  Why the schema is shaped the way it is
 ```
@@ -129,18 +139,66 @@ A consequence worth knowing: after any change to a user's role or outlet, that
 user must sign out and back in, because their existing token still carries the
 old claims.
 
+## What runs on its own
+
+Nothing about keeping time depends on somebody having the app open. Five cron
+jobs run in the database, all of them working in each organization's timezone
+and all idempotent, so a retry cannot double up:
+
+| Job | Cadence | Does |
+| --- | --- | --- |
+| `sweep-overdue` | every 15 min | Flips assignments past their deadline to overdue |
+| `materialise-recurring` | hourly | Creates each branch's copy of a recurring task for its local today |
+| `recalculate-streaks` | hourly | Rebuilds per-staff clear-board streaks |
+| `notify-owner` | 4× hourly | Pushes escalations and watched-task completions |
+| `send-digest` | hourly | Sends the morning summary to owners whose chosen hour has arrived |
+
+The last two call edge functions in `supabase/functions/`. Both authenticate on
+a shared secret read from the `app_keys` table rather than a user session, which
+is why they run with JWT verification off — the secret check is the first thing
+each of them does.
+
+## The assistant
+
+The owner opens onto a chat rather than a dashboard. They describe what needs to
+happen in their own words, and the assistant turns it into tasks — but only after
+showing them a card of exactly what it intends to create.
+
+Three pieces, split along one line: **the model proposes, the database disposes.**
+
+| Piece | Where | Does |
+| --- | --- | --- |
+| `assistant` | `supabase/functions/assistant/` | Holds the OpenAI key, calls the model, stores what it proposed |
+| `confirm_chat_proposal` | migration `0019` | Turns an approved proposal into real tasks, and writes the audit row |
+| `chat_conversations`, `chat_messages` | migration `0018` | History, scoped to the individual owner rather than the organization |
+
+The edge function never writes anything but chat rows. It builds its Supabase
+client from the caller's own `Authorization` header, so every read it makes is
+filtered by the same row-level security the app runs under — it cannot see
+anything its owner could not. Creating work is a separate, deliberate act by the
+owner, and `confirm_chat_proposal` re-reads the stored proposal rather than
+accepting one from the browser, so what gets created is what was on the card.
+
+Area, shift and branch identifiers are handed to the model as JSON Schema `enum`s
+under strict mode. It is therefore structurally unable to name one that does not
+exist, which is the failure small models are most prone to on this kind of job.
+
+Set `OPENAI_API_KEY` under **Edge Functions > Secrets** in the dashboard. Never in
+`.env.local` — Create React App inlines `REACT_APP_*` into the browser bundle, and
+these secrets are the production equivalent of a `.env` file anyway. `OPENAI_MODEL`
+is optional and defaults to `gpt-5.4-mini`.
+
+`GET /functions/v1/assistant` returns `{ ok, model, keyPresent }`, so a missing
+secret is one request to diagnose rather than something that looks like the model
+being broken.
+
 ## Known gaps
 
-- Recurring-task materialization and the overdue sweep run in the browser, so
-  they only happen while someone has the app open. Both belong in scheduled jobs.
-- The scheduler knows who is off, but nothing yet reacts when a task's assignee
-  turns out to be away — the owner has to notice.
+- The assistant answers questions from a summary of open work, not from the full
+  history. Anything needing real numbers it will decline and point at Reports
+  rather than guess.
 - Invitations are not emailed. The owner gets a link and has to send it.
   [email-integration-setup.md](email-integration-setup.md) sketches the options.
-- Completion records who the task was assigned to, not who tapped the button.
-  On a shared branch device those can differ; the column exists for it.
-- Two outlets in the live data have no login yet; invite them from Outlet
-  Management.
 
 ## License
 

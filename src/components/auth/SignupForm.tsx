@@ -156,7 +156,9 @@ const SignupForm: React.FC = () => {
       await supabase.auth.refreshSession();
       await refreshIdentity();
 
-      navigate('/dashboard');
+      // The root route forwards to whatever this account's home is, rather than
+      // naming a screen here that only happens to be right for one role.
+      navigate('/');
 
     } catch (error) {
       console.error('Error creating account:', error);

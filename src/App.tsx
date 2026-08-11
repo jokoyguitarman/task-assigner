@@ -12,6 +12,7 @@ import AccountSetup from './components/auth/AccountSetup';
 import ForgotPassword from './components/auth/ForgotPassword';
 import ResetPassword from './components/auth/ResetPassword';
 import AdminDashboard from './components/admin/Dashboard';
+import AssistantChat from './components/admin/assistant/AssistantChat';
 import TaskList from './components/admin/TaskList';
 import AssignmentList from './components/admin/AssignmentList';
 import OutletManagement from './components/admin/OutletManagement';
@@ -20,6 +21,7 @@ import StaffEnrollment from './components/admin/StaffEnrollment';
 import MonthlyScheduler from './components/admin/MonthlyScheduler';
 import TaskCompletionReports from './components/admin/TaskCompletionReports';
 import InvitationManagement from './components/admin/InvitationManagement';
+import BranchBoard from './components/staff/BranchBoard';
 import StaffDashboard from './components/staff/StaffDashboard';
 import TaskCompletion from './components/staff/TaskCompletion';
 import TeamScheduler from './components/staff/TeamScheduler';
@@ -163,11 +165,21 @@ const theme = createTheme({
 // Create a client
 const queryClient = new QueryClient();
 
+// Where each kind of account starts. The owner opens onto the assistant and asks
+// for what they want; a branch opens onto today's board and gets to work. Both
+// reach the dashboards they used to land on with one tap.
+const homeFor = (role?: 'admin' | 'outlet'): string =>
+  role === 'admin' ? '/assistant' : '/board';
+
 // Protected Route Component
-const ProtectedRoute: React.FC<{ children: React.ReactNode; requiredRole?: 'admin' | 'outlet' }> = ({ 
-  children, 
-  requiredRole 
-}) => {
+//
+// `bare` skips the admin chrome, for a screen that is the whole window rather
+// than a page inside the console.
+const ProtectedRoute: React.FC<{
+  children: React.ReactNode;
+  requiredRole?: 'admin' | 'outlet';
+  bare?: boolean;
+}> = ({ children, requiredRole, bare }) => {
   const { user, isLoading, needsSetup } = useAuth();
 
   if (isLoading) {
@@ -186,13 +198,19 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; requiredRole?: 'admi
   }
 
   if (requiredRole && user.role !== requiredRole) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={homeFor(user.role)} replace />;
   }
 
-  return <AppLayout>{children}</AppLayout>;
+  return bare ? <>{children}</> : <AppLayout>{children}</AppLayout>;
 };
 
-// Owner routes: the whole organization.
+const RoleHome: React.FC = () => {
+  const { user } = useAuth();
+  return <Navigate to={homeFor(user?.role)} replace />;
+};
+
+// Owner routes: the whole organization. The assistant is not here because it is
+// rendered without the console chrome; see AppRoutes.
 const AdminRoutes: React.FC = () => (
   <Routes>
     <Route path="/dashboard" element={<AdminDashboard />} />
@@ -204,18 +222,20 @@ const AdminRoutes: React.FC = () => (
     <Route path="/assignments" element={<AssignmentList />} />
     <Route path="/reports" element={<TaskCompletionReports />} />
     <Route path="/invitations" element={<InvitationManagement />} />
-    <Route path="*" element={<Navigate to="/dashboard" replace />} />
+    <Route path="*" element={<Navigate to="/assistant" replace />} />
   </Routes>
 );
 
-// Branch routes: what the shared store phone sees.
+// Branch routes: what the shared store phone sees. /board is today's work; the
+// dashboard behind it is for the manual editing the board deliberately omits.
 const OutletRoutes: React.FC = () => (
   <Routes>
+    <Route path="/board" element={<BranchBoard />} />
     <Route path="/dashboard" element={<StaffDashboard />} />
     <Route path="/schedules" element={<TeamScheduler />} />
     <Route path="/performance" element={<PerformanceTracker />} />
     <Route path="/tasks/:assignmentId/complete" element={<TaskCompletion />} />
-    <Route path="*" element={<Navigate to="/dashboard" replace />} />
+    <Route path="*" element={<Navigate to="/board" replace />} />
   </Routes>
 );
 
@@ -231,7 +251,15 @@ const AppRoutes: React.FC = () => {
       <Route path="/setup" element={<AccountSetup />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <Route
+        path="/assistant"
+        element={
+          <ProtectedRoute requiredRole="admin" bare>
+            <AssistantChat />
+          </ProtectedRoute>
+        }
+      />
+      <Route path="/" element={<ProtectedRoute bare><RoleHome /></ProtectedRoute>} />
       <Route 
         path="/*" 
         element={

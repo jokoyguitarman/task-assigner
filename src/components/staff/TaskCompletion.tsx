@@ -189,9 +189,11 @@ const TaskCompletion: React.FC = () => {
       });
 
       setSuccess(true);
-      
+
+      // Back to the board rather than the operations dashboard: whoever just ticked
+      // a job off is mid-shift and wants the next one in front of them.
       setTimeout(() => {
-        navigate('/dashboard');
+        navigate('/board');
       }, 2000);
 
     } catch (err: any) {
@@ -206,7 +208,7 @@ const TaskCompletion: React.FC = () => {
     return (
       <Box sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-          <IconButton onClick={() => navigate('/dashboard')} sx={{ mr: 2 }}>
+          <IconButton onClick={() => navigate('/board')} sx={{ mr: 2 }}>
             <ArrowBack />
           </IconButton>
           <Typography variant="h4">Complete Task</Typography>
@@ -222,7 +224,7 @@ const TaskCompletion: React.FC = () => {
     return (
       <Box sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-          <IconButton onClick={() => navigate('/dashboard')} sx={{ mr: 2 }}>
+          <IconButton onClick={() => navigate('/board')} sx={{ mr: 2 }}>
             <ArrowBack />
           </IconButton>
           <Typography variant="h4">Complete Task</Typography>
@@ -230,7 +232,7 @@ const TaskCompletion: React.FC = () => {
         <Alert severity="error" sx={{ mb: 2 }}>
           {error}
         </Alert>
-        <Button variant="contained" onClick={() => navigate('/dashboard')}>
+        <Button variant="contained" onClick={() => navigate('/board')}>
           Back to Dashboard
         </Button>
       </Box>
@@ -241,7 +243,7 @@ const TaskCompletion: React.FC = () => {
     return (
       <Box sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-          <IconButton onClick={() => navigate('/dashboard')} sx={{ mr: 2 }}>
+          <IconButton onClick={() => navigate('/board')} sx={{ mr: 2 }}>
             <ArrowBack />
           </IconButton>
           <Typography variant="h4">Complete Task</Typography>
@@ -257,7 +259,7 @@ const TaskCompletion: React.FC = () => {
     return (
       <Box sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-          <IconButton onClick={() => navigate('/dashboard')} sx={{ mr: 2 }}>
+          <IconButton onClick={() => navigate('/board')} sx={{ mr: 2 }}>
             <ArrowBack />
           </IconButton>
           <Typography variant="h4">Complete Task</Typography>
@@ -272,7 +274,7 @@ const TaskCompletion: React.FC = () => {
   return (
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-        <IconButton onClick={() => navigate('/dashboard')} sx={{ mr: 2 }}>
+        <IconButton onClick={() => navigate('/board')} sx={{ mr: 2 }}>
           <ArrowBack />
         </IconButton>
         <Typography variant="h4">Complete Task</Typography>

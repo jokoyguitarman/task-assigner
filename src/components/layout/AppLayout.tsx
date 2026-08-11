@@ -20,6 +20,8 @@ import {
 import {
   Dashboard,
   Assignment,
+  AutoAwesome,
+  Checklist,
   People,
   Logout,
   Menu as MenuIcon,
@@ -88,8 +90,23 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   };
 
   const menuItems = [
+    // Whatever the account opens onto goes first, so the navigation agrees with
+    // where the app actually starts.
+    ...(user?.role === 'admin' ? [
+      {
+        text: 'Assistant',
+        icon: <AutoAwesome />,
+        path: '/assistant',
+      },
+    ] : [
+      {
+        text: 'Today',
+        icon: <Checklist />,
+        path: '/board',
+      },
+    ]),
     {
-      text: 'Dashboard',
+      text: user?.role === 'admin' ? 'Dashboard' : 'Operations',
       icon: <Dashboard />,
       path: '/dashboard',
     },
